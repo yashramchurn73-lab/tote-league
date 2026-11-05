@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Brothers' Tote League</title>
+<meta name="theme-color" content="#1f6b3a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Tote League">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<style>
+:root{--bg:#f4f1ea;--card:#fff;--ink:#1d2a22;--mute:#6b766e;--green:#1f6b3a;--gold:#c9952b;--red:#b3392f;--line:#e2ddd2}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+header{background:var(--green);color:#fff;padding:calc(12px + env(safe-area-inset-top)) 16px 8px;display:flex;align-items:flex-start;gap:8px}
+header .t{flex:1}
+header h1{margin:0;font-size:19px}
+#sub{font-size:13px;opacity:.88;margin-top:2px}
+#who{font-size:12px;opacity:.9;text-align:right}
+#who button{background:none;border:1px solid rgba(255,255,255,.5);color:#fff;border-radius:6px;padding:3px 7px;font-size:12px;margin-top:3px;cursor:pointer}
+nav{display:flex;background:var(--green);padding:0 6px;gap:2px;position:sticky;top:0;z-index:5;overflow-x:auto}
+nav:empty{display:none}
+nav button{flex:1;background:none;border:0;color:#cfe6d6;padding:10px 6px;font:600 14px system-ui,sans-serif;border-bottom:3px solid transparent;white-space:nowrap;cursor:pointer}
+nav button.on{color:#fff;border-color:var(--gold)}
+main{max-width:720px;margin:0 auto;padding:12px 12px calc(40px + env(safe-area-inset-bottom))}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px}
+.card h2{font-size:16px;margin:0 0 4px}
+.hint{color:var(--mute);font-size:13px;margin:0 0 8px}
+.row{display:flex;align-items:center;gap:8px;margin:7px 0}
+.row>label{min-width:58px;font-weight:700;font-size:14px;line-height:1.2}
+.row>label small{font-weight:400}
+select,input,textarea{font:inherit;font-size:16px;width:100%;padding:9px;border:1px solid #cfc9bc;border-radius:8px;background:#fff;color:var(--ink);min-width:0}
+select:disabled{background:#f1efe9;color:#555}
+textarea{font-family:ui-monospace,Menlo,monospace;font-size:13px;min-height:220px}
+.btn{background:var(--green);color:#fff;border:0;border-radius:10px;padding:12px 16px;font-weight:700;font-size:15px;width:100%;cursor:pointer}
+.btn.sm{width:auto;padding:8px 12px;font-size:14px;margin-top:6px}
+.btn.alt{background:#fff;color:var(--green);border:1px solid var(--green)}
+.btn.red{background:#fff;color:var(--red);border:1px solid var(--red)}
+.btn:disabled{opacity:.5}
+.link{background:none;border:0;color:var(--green);font-weight:600;text-decoration:underline;cursor:pointer;padding:6px 0;font-size:14px}
+.badge{display:inline-block;font-size:11px;font-weight:700;padding:1px 5px;border-radius:5px;background:var(--gold);color:#fff;margin-left:3px;vertical-align:middle}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+td,th{padding:6px 5px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{font-size:12px;color:var(--mute);font-weight:600}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+td.n{font-weight:700}
+.win{color:var(--green)}.lose{color:var(--red)}.pend,.none{color:var(--mute)}
+.save-bar{position:sticky;bottom:0;padding:12px 0 6px;background:linear-gradient(rgba(244,241,234,0),var(--bg) 35%)}
+.status{font-size:13px;text-align:center;color:var(--mute);margin-top:6px}
+.warn{color:var(--red);font-size:13px;margin:4px 0}
+.total{font-size:22px;font-weight:800;color:var(--green)}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin:6px 0}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:6px 0}
+.rr{border-top:1px solid var(--line);padding:10px 0}
+.rr:first-of-type{border-top:0}
+.rank{display:inline-block;width:22px;font-weight:800;color:var(--gold)}
+.small{font-size:12px;color:var(--mute)}
+.login{max-width:380px;margin:30px auto}
+.login label{display:block;font-weight:600;font-size:14px;margin:10px 0 4px}
+#toast{position:fixed;left:50%;bottom:calc(22px + env(safe-area-inset-bottom));transform:translateX(-50%);background:#1d2a22;color:#fff;padding:10px 16px;border-radius:10px;font-size:14px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:20;max-width:90vw;text-align:center}
+#toast.show{opacity:1}
+</style>
+</head>
+<body>
+<header><div class="t"><h1>🐎 Brothers' Tote League</h1><div id="sub"></div></div><div id="who"></div></header>
+<nav id="nav"></nav>
+<main id="app"><div class="card">Loading…</div></main>
+<div id="toast"></div>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+import { getFirestore, doc, collection, onSnapshot, setDoc, updateDoc, deleteDoc, serverTimestamp, Timestamp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAt4lEUtH3pWF1Z-QRgqXQV3DEho25xkOA",
+  authDomain: "tote-league.firebaseapp.com",
+  projectId: "tote-league",
+  storageBucket: "tote-league.firebasestorage.app",
+  messagingSenderId: "996975004815",
+  appId: "1:996975004815:web:8071f90e472b9ae82db4fa"
+};
+const ADMIN_USER = 'yash';
+const DOMAIN = '@tote-league.app';
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+const PTS={place:[0,10,7,5],group:{1:25,2:20,3:15},banker:20,outsider:25,odds:20,acc:20,loser:15};
+const S={tab:(location.hash||'#picks').slice(1),user:null,uid:null,username:null,admin:false,m:null,mLoaded:false,
+  players:{},entries:{},hist:[],users:{},draft:null,draftFor:null,dirty:false,actAs:null,form:{},pend:false,
+  wasLocked:null,saving:false,loginMode:'in',err:null,unsubs:[]};
+const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt=iso=>iso?new Date(iso).toLocaleString('en-GB',{timeZone:'Indian/Mauritius',weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'';
+const toLocalInput=iso=>{if(!iso)return'';const d=new Date(Date.parse(iso)+4*3600e3);return d.toISOString().slice(0,16);};
+const fromLocalInput=v=>v?new Date(v+':00+04:00').toISOString():null;
+const nums=s=>String(s||'').split(/[^0-9]+/).filter(Boolean).map(Number);
+const ord=['Unplaced','1st','2nd','3rd'];
+const cleanUser=u=>String(u||'').trim().toLowerCase().replace(/[^a-z0-9._-]/g,'');
+
+function toast(t){const el=$('#toast');el.textContent=t;el.classList.add('show');clearTimeout(toast._t);toast._t=setTimeout(()=>el.classList.remove('show'),2800);}
+let wq=Promise.resolve();
+function write(fn,msg){wq=wq.then(fn).then(()=>{toast(msg||'Saved ✅');return true;}).catch(e=>{console.error(e);toast('Could not save ('+((e&&e.code)||'error').replace('firestore/','')+')');return false;});return wq;}
+
+/* ---------- helpers ---------- */
+function deadlinePassed(){return S.m&&S.m.deadline&&Date.now()>=Date.parse(S.m.deadline);}
+function isLocked(){return deadlinePassed()&&!S.admin;}
+function cd(){if(!S.m||!S.m.deadline)return'';const ms=Date.parse(S.m.deadline)-Date.now();if(ms<=0)return'Picks closed';const h=Math.floor(ms/3600e3),mi=Math.floor(ms%3600e3/60e3);const d=Math.floor(h/24);return'Picks close in '+(d?d+'d '+(h%24)+'h':(h?h+'h ':'')+mi+'m');}
+function pk(v){if(!v)return null;const [r,h]=String(v).split('-').map(Number);return r&&h?{r,h}:null;}
+function horse(m,r,h){const rc=m.races.find(x=>x.n==r);return rc&&rc.horses.find(x=>x.no==h);}
+function hl(m,r,h){const x=horse(m,r,h);return 'R'+r+' #'+h+' '+(x?x.name:'?');}
+function playerIds(){return Object.keys(S.players).sort((a,b)=>(S.players[a].name||'').localeCompare(S.players[b].name||''));}
+function pname(uid){return (S.players[uid]&&S.players[uid].name)||'?';}
+function entryFor(uid){const e=S.entries[uid];return e&&S.m&&e.date===S.m.date&&e.picks?e:null;}
+function fv(k,d){return Object.prototype.hasOwnProperty.call(S.form,k)?S.form[k]:d;}
+function isPlayer(){return !!(S.uid&&S.players[S.uid]);}
+
+/* ---------- scoring ---------- */
+function result(m,r,h){
+  const res=(m.results||{})[r];
+  if(!res||!(res.p1||[]).length)return{ps:null};
+  let hh=h,sub=null;
+  if((res.out||[]).includes(h)){if(!res.fav)return{ps:null,sub:'?'};hh=res.fav;sub=res.fav;}
+  const ps=(res.p1||[]).includes(hh)?1:(res.p2||[]).includes(hh)?2:(res.p3||[]).includes(hh)?3:0;
+  return{ps,sub};
+}
+function score(m,e){
+  const p=(e&&e.picks)||{};const it=[];
+  const add=(cat,r,h,fn)=>{
+    if(!r||!h){it.push({cat,txt:'— no pick',res:'',pts:0,st:'none'});return;}
+    const {ps,sub}=result(m,r,h);const pts=ps==null?0:fn(ps);
+    it.push({cat,txt:hl(m,r,h)+(sub?' → fav #'+sub:''),res:ps==null?'pending':ord[ps],pts,st:ps==null?'pend':pts>0?'win':'lose'});
+  };
+  m.races.forEach(rc=>{const g=+rc.group||0;add('Race '+rc.n+(g?' (G'+g+')':''),rc.n,(p.race||{})[rc.n],ps=>g?(ps===1?PTS.group[g]:0):PTS.place[ps]);});
+  [0,1].forEach(i=>{const x=pk((p.bankers||[])[i]);add('Banker '+(i+1),x&&x.r,x&&x.h,ps=>ps===1?PTS.banker:0);});
+  [0,1].forEach(i=>{const x=pk((p.outsiders||[])[i]);add('Outsider '+(i+1),x&&x.r,x&&x.h,ps=>ps===1?PTS.outsider:0);});
+  {const x=pk(p.oddsHorse);add('Odds horse',x&&x.r,x&&x.h,ps=>ps>=1&&ps<=3?PTS.odds:0);}
+  [0,1].forEach(i=>{const x=pk((p.losers||[])[i]);add('Fav to lose '+(i+1),x&&x.r,x&&x.h,ps=>ps!==1?PTS.loser:0);});
+  const acc=p.acc||{};let missing=false;
+  const parts=m.races.map(rc=>{const h=acc[rc.n];if(!h){missing=true;return null;}return result(m,rc.n,h).ps;});
+  let pts=0,res,st='pend';
+  if(missing){st='none';res='incomplete';}
+  else if(parts.some(x=>x===0)){st='lose';res='lost';}
+  else if(parts.every(x=>x>=1)){st='win';pts=PTS.acc;res='all placed';}
+  else res=parts.filter(x=>x>=1).length+'/'+parts.length+' placed';
+  it.push({cat:'Place accumulator',txt:missing?'— incomplete':m.races.map(rc=>'R'+rc.n+' #'+acc[rc.n]).join(' · '),res,pts,st});
+  return{items:it,total:it.reduce((a,b)=>a+b.pts,0)};
+}
+
+/* ---------- draft ---------- */
+function emptyPicks(){return{race:{},acc:{},bankers:['',''],outsiders:['',''],oddsHorse:'',losers:['','']};}
+function targetUid(){return S.actAs||S.uid;}
+function syncDraft(){
+  if(!S.m)return;const key=targetUid()+'|'+S.m.date;
+  if(S.dirty&&S.draftFor===key)return;
+  const e=entryFor(targetUid());
+  const d=emptyPicks();Object.assign(d,JSON.parse(JSON.stringify((e&&e.picks)||{})));
+  d.race=d.race||{};d.acc=d.acc||{};
+  ['bankers','outsiders','losers'].forEach(k=>{d[k]=[(d[k]||[])[0]||'',(d[k]||[])[1]||''];});
+  S.draft=d;S.draftFor=key;S.dirty=false;S.savedAt=e&&e.updatedAt;
+}
+
+/* ---------- views ---------- */
+function vLogin(){
+  const up=S.loginMode==='up';
+  return '<div class="card login"><h2>'+(up?'Create your account':'Sign in')+'</h2>'+
+    '<p class="hint">'+(up?'Pick a username and a password (at least 6 characters). Yash then adds you to the league.':'Use the username and password you created.')+'</p>'+
+    '<form id="loginForm"><label>Username</label><input id="lu" autocomplete="username" autocapitalize="none" autocorrect="off" placeholder="e.g. ayush" required>'+
+    '<label>Password</label><input id="lp" type="password" autocomplete="'+(up?'new-password':'current-password')+'" required>'+
+    (up?'<label>Repeat password</label><input id="lp2" type="password" autocomplete="new-password" required>':'')+
+    (S.err?'<p class="warn">'+esc(S.err)+'</p>':'')+
+    '<div style="margin-top:14px"><button class="btn" type="submit"'+(S.saving?' disabled':'')+'>'+(S.saving?'Please wait…':(up?'Create account':'Sign in'))+'</button></div></form>'+
+    '<button class="link" data-act="toggleLogin">'+(up?'I already have an account':'First time? Create an account')+'</button></div>';
+}
+
+function raceOpts(rc,val){return rc.horses.map(h=>'<option value="'+h.no+'"'+(+val===h.no?' selected':'')+'>#'+h.no+' '+esc(h.name)+' · Rs'+h.odds+'</option>').join('');}
+function anyOpts(m,filter,val){return m.races.map(rc=>{const hs=rc.horses.filter(filter);if(!hs.length)return'';return '<optgroup label="Race '+rc.n+'">'+hs.map(h=>{const v=rc.n+'-'+h.no;return '<option value="'+v+'"'+(val===v?' selected':'')+'>R'+rc.n+' #'+h.no+' '+esc(h.name)+' · Rs'+h.odds+'</option>';}).join('')+'</optgroup>';}).join('');}
+
+function vPicks(){
+  const m=S.m;let h='';
+  if(!isPlayer()&&!S.admin)return '<div class="card"><h2>Almost there 👋</h2><p class="hint">Your account <b>'+esc(S.username)+'</b> is created. Ask Yash to add you to the league — this page updates by itself once he does.</p></div>';
+  if(!m)return '<div class="card"><h2>No race day set up yet</h2><p class="hint">'+(S.admin?'Go to Admin and paste this week\'s race card and odds.':'Check back once Yash adds this week\'s race card.')+'</p></div>';
+  if(S.admin){
+    const ids=playerIds();
+    h+='<div class="card"><div class="row"><label>Picks for</label><select id="actAs">'+
+      (isPlayer()?'':'<option value="">— choose a player —</option>')+
+      ids.map(id=>'<option value="'+id+'"'+((S.actAs||S.uid)===id?' selected':'')+'>'+esc(pname(id))+(id===S.uid?' (me)':'')+'</option>').join('')+
+      '</select></div><p class="hint">Switch to a brother to type in picks he sent you on WhatsApp.</p></div>';
+    if(!S.players[targetUid()])return h+(ids.length?'':'<div class="card"><p class="hint">No players yet — add them in Admin (add yourself too).</p></div>');
+  }
+  const d=S.draft,dis=isLocked()?' disabled':'';
+  const sel=(k,opts)=>'<select data-k="'+k+'"'+dis+'><option value="">— choose —</option>'+opts+'</select>';
+  if(isLocked())h+='<div class="card"><b>🔒 Picks are closed.</b> <span class="hint">See All picks and Scores.</span></div>';
+  h+='<div class="card"><h2>Race picks — '+esc(pname(targetUid()))+'</h2><p class="hint">One horse per race. 1st 10 · 2nd 7 · 3rd 5. Group races pay only a win: G3 15 · G2 20 · G1 25.</p>'+
+    m.races.map(rc=>'<div class="row"><label>R'+rc.n+(rc.group?'<span class="badge">G'+rc.group+'</span>':'')+'<br><small class="pend">'+esc(rc.time||'')+'</small></label>'+sel('race.'+rc.n,raceOpts(rc,d.race[rc.n]))+'</div>').join('')+'</div>';
+  const two=(key,filter)=>[0,1].map(i=>'<div class="row"><label>'+(i+1)+'</label>'+sel(key+'.'+i,anyOpts(m,filter,d[key][i]))+'</div>').join('')+(d[key][0]&&d[key][0]===d[key][1]?'<p class="warn">Both picks are the same horse.</p>':'');
+  h+='<div class="card"><h2>🏦 Bankers</h2><p class="hint">Any horse. 20 pts each — must WIN.</p>'+two('bankers',()=>true)+'</div>';
+  h+='<div class="card"><h2>🎯 Outsiders</h2><p class="hint">Odds Rs'+m.outsiderMin+' or more. 25 pts each — must WIN.</p>'+two('outsiders',x=>x.odds>=m.outsiderMin)+'</div>';
+  h+='<div class="card"><h2>💰 Odds horse</h2><p class="hint">Odds Rs'+m.oddsMin+' or more. 20 pts if it finishes top 3.</p><div class="row"><label>1</label>'+sel('oddsHorse',anyOpts(m,x=>x.odds>=m.oddsMin,d.oddsHorse))+'</div></div>';
+  h+='<div class="card"><h2>👎 Favourites to lose</h2><p class="hint">Odds under Rs'+m.loserMax+'. 15 pts each if it does NOT win.</p>'+two('losers',x=>x.odds<m.loserMax)+'</div>';
+  h+='<div class="card"><h2>🔗 Place accumulator</h2><p class="hint">One horse per race. 20 pts only if every one finishes top 3.</p>'+
+    m.races.map(rc=>'<div class="row"><label>R'+rc.n+'</label>'+sel('acc.'+rc.n,raceOpts(rc,d.acc[rc.n]))+'</div>').join('')+'</div>';
+  if(!isLocked()){
+    const filled=m.races.filter(rc=>d.race[rc.n]).length+m.races.filter(rc=>d.acc[rc.n]).length+[...d.bankers,...d.outsiders,...d.losers,d.oddsHorse].filter(Boolean).length;
+    const total=m.races.length*2+7;
+    h+='<div class="save-bar"><button class="btn" data-act="save"'+(S.saving?' disabled':'')+'>'+(S.saving?'Saving…':'Save picks')+'</button><div class="status">'+filled+'/'+total+' chosen · '+
+      (S.dirty?'<b style="color:var(--red)">Unsaved changes</b>':S.savedAt?'Saved '+fmt(S.savedAt):'Not saved yet')+'</div></div>';
+  }
+  return h;
+}
+
+function itemsTable(items){return '<table><tr><th>Pick</th><th>Horse</th><th>Result</th><th class="n">Pts</th></tr>'+items.map(i=>'<tr><td>'+esc(i.cat)+'</td><td>'+esc(i.txt)+'</td><td class="'+i.st+'">'+esc(i.res||'—')+'</td><td class="n '+i.st+'">'+(i.st==='pend'?'…':i.pts)+'</td></tr>').join('')+'</table>';}
+
+function vAll(){
+  const m=S.m;if(!m)return '<div class="card"><p class="hint">No race day yet.</p></div>';
+  const rows=playerIds().map(id=>({id,p:pname(id),e:entryFor(id)}));
+  if(!deadlinePassed())return '<div class="card"><h2>Who\'s in?</h2><p class="hint">Everyone\'s picks are revealed when picks close ('+esc(fmt(m.deadline))+').</p><table>'+rows.map(r=>'<tr><td><b>'+esc(r.p)+'</b></td><td>'+(r.e?'✅ Picks in':'⏳ Not yet')+'</td></tr>').join('')+'</table></div>';
+  return rows.map(r=>{if(!r.e)return '<div class="card"><h2>'+esc(r.p)+'</h2><p class="hint">No picks submitted.</p></div>';const sc=score(m,r.e);
+    return '<div class="card"><h2>'+esc(r.p)+'<span class="total" style="float:right">'+sc.total+'</span></h2>'+itemsTable(sc.items)+'</div>';}).join('');
+}
+
+function todayScores(){const m=S.m;const o={};playerIds().forEach(id=>{const e=entryFor(id);o[pname(id)]=e?score(m,e).total:0;});return o;}
+function vBoard(){
+  const m=S.m;let h='';
+  const season={};playerIds().forEach(id=>season[pname(id)]=0);
+  S.hist.forEach(x=>Object.keys(x.scores||{}).forEach(p=>{season[p]=(season[p]||0)+(+x.scores[p]||0);}));
+  if(m){
+    const done=m.races.filter(rc=>((m.results||{})[rc.n]||{}).p1&&m.results[rc.n].p1.length).length;
+    const ts=todayScores();const saved=S.hist.some(x=>x.id===m.date);
+    if(!saved)Object.keys(ts).forEach(p=>{season[p]=(season[p]||0)+ts[p];});
+    const today=Object.keys(ts).map(p=>({p,t:ts[p]})).sort((a,b)=>b.t-a.t);
+    h+='<div class="card"><h2>Today — '+esc(m.title||m.date)+'</h2><p class="hint">'+done+'/'+m.races.length+' races resulted. Points update live.</p><table>'+
+      today.map((x,i)=>'<tr><td><span class="rank">'+(i+1)+'</span><b>'+esc(x.p)+'</b></td><td class="n">'+x.t+'</td></tr>').join('')+'</table></div>';
+  }
+  const sRows=Object.keys(season).map(p=>({p,t:season[p]})).sort((a,b)=>b.t-a.t);
+  h+='<div class="card"><h2>🏆 Season</h2><table>'+sRows.map((x,i)=>'<tr><td><span class="rank">'+(i+1)+'</span><b>'+esc(x.p)+'</b></td><td class="n">'+x.t+'</td></tr>').join('')+'</table></div>';
+  const past=S.hist.slice().sort((a,b)=>a.id<b.id?1:-1);
+  if(past.length)h+='<div class="card"><h2>Past race days</h2><table>'+past.map(x=>'<tr><td>'+esc(x.title||x.id)+'</td><td>'+Object.keys(x.scores||{}).sort((a,b)=>x.scores[b]-x.scores[a]).map(p=>esc(p)+' '+x.scores[p]).join(' · ')+'</td></tr>').join('')+'</table></div>';
+  return h;
+}
+
+function cardText(m){return(m?m.races:[]).map(r=>'R'+r.n+' '+(r.time||'')+'\n'+r.horses.map(h=>h.no+' '+h.name+' '+h.odds).join('\n')).join('\n\n');}
+function parseCard(txt){const races=[];let cur=null;String(txt||'').split('\n').forEach(line=>{const l=line.trim();if(!l)return;let mm=l.match(/^R(?:ace)?\s*(\d+)\b\s*(.*)$/i);if(mm){cur={n:+mm[1],time:mm[2].trim(),group:0,horses:[]};races.push(cur);return;}mm=l.match(/^(\d+)[\s.)-]+(.+?)\s+(?:Rs\.?\s*)?(\d+)$/i);if(mm&&cur)cur.horses.push({no:+mm[1],name:mm[2].trim(),odds:+mm[3]});});return races.filter(r=>r.horses.length);}
+
+function vAdmin(){
+  const m=S.m;let h='';
+  // players
+  const pending=Object.keys(S.users).filter(id=>!S.players[id]);
+  h+='<div class="card"><h2>👥 Players</h2>';
+  h+=playerIds().length?'<table>'+playerIds().map(id=>'<tr><td><b>'+esc(pname(id))+'</b> <span class="small">'+esc((S.users[id]||{}).username||'')+'</span></td><td style="text-align:right"><button class="link" style="color:var(--red)" data-act="rmplayer" data-u="'+id+'">Remove</button></td></tr>').join('')+'</table>':'<p class="hint">No players yet.</p>';
+  if(pending.length){
+    h+='<p class="hint" style="margin-top:10px"><b>New accounts waiting:</b> give each a display name and add them.</p>'+pending.map(id=>{const u=S.users[id]||{};const k='pl.'+id;const def=u.username?u.username.charAt(0).toUpperCase()+u.username.slice(1):'';
+      return '<div class="row"><label>'+esc(u.username||'?')+'</label><input data-fk="'+k+'" value="'+esc(fv(k,def))+'"><button class="btn sm" style="margin:0" data-act="addplayer" data-u="'+id+'">Add</button></div>';}).join('');
+  } else h+='<p class="hint" style="margin-top:8px">Brothers create their own account on the sign-in page, then show up here for you to add.</p>';
+  h+='</div>';
+  if(m){
+    const saved=S.hist.some(x=>x.id===m.date);
+    h+='<div class="card"><h2>🏁 Results</h2><p class="hint">Type horse numbers. Dead heat: put both, e.g. <b>3,5</b>. If a horse fell, was disqualified or scratched, put it in “Out” and type the Supertote tote favourite — picks on it switch to the favourite.</p>';
+    h+=m.races.map(rc=>{const r=(m.results||{})[rc.n]||{};const j=a=>(a||[]).join(',');const k='res.'+rc.n+'.';
+      const inp=(f,ph,d)=>'<input data-fk="'+k+f+'" placeholder="'+ph+'" value="'+esc(fv(k+f,d))+'">';
+      return '<div class="rr"><b>Race '+rc.n+'</b> '+((r.p1||[]).length?'<span class="win">✓ saved</span>':'<span class="small">not entered</span>')+
+      '<div class="small">'+rc.horses.map(x=>x.no+' '+esc(x.name)).join(' · ')+'</div>'+
+      '<div class="grid3">'+inp('p1','1st',j(r.p1))+inp('p2','2nd',j(r.p2))+inp('p3','3rd',j(r.p3))+'</div>'+
+      '<div class="grid2">'+inp('out','Out: fell/DQ/scr.',j(r.out))+inp('fav','Tote fav #',r.fav||'')+'</div>'+
+      '<button class="btn sm" data-act="saveres" data-r="'+rc.n+'">Save race '+rc.n+'</button></div>';}).join('')+'</div>';
+    h+='<div class="card"><h2>Group races</h2><p class="hint">Mark any Group race — the race pick then pays only on a win.</p>'+
+      m.races.map(rc=>'<div class="row"><label>R'+rc.n+'</label><select data-g="'+rc.n+'">'+[0,3,2,1].map(g=>'<option value="'+g+'"'+((+rc.group||0)===g?' selected':'')+'>'+(g?'Group '+g+' ('+PTS.group[g]+' pts, win only)':'Normal (10/7/5)')+'</option>').join('')+'</select></div>').join('')+'</div>';
+    h+='<div class="card"><h2>⚙️ This week\'s settings</h2>'+
+      '<div class="row"><label>Picks close</label><input type="datetime-local" data-fk="set.dl" value="'+esc(fv('set.dl',toLocalInput(m.deadline)))+'"></div>'+
+      '<div class="row"><label>Outsider ≥ Rs</label><input inputmode="numeric" data-fk="set.out" value="'+esc(fv('set.out',m.outsiderMin))+'"></div>'+
+      '<div class="row"><label>Odds horse ≥ Rs</label><input inputmode="numeric" data-fk="set.odds" value="'+esc(fv('set.odds',m.oddsMin))+'"></div>'+
+      '<div class="row"><label>Fav to lose &lt; Rs</label><input inputmode="numeric" data-fk="set.lose" value="'+esc(fv('set.lose',m.loserMax))+'"></div>'+
+      '<button class="btn sm" data-act="saveset">Save settings</button></div>';
+    h+='<div class="card"><h2>🏆 Season</h2><p class="hint">'+(saved?'Today is saved to the season. Saving again updates it.':'When all races are in, save today\'s points to the season table.')+'</p><button class="btn sm" data-act="season">'+(saved?'Update season with today':'Save today to season')+'</button></div>';
+  }
+  h+='<div class="card"><h2>📋 Race card & bookmaker odds</h2><p class="hint">For a new week: change the date and paste the card. A line <b>R1 12:30</b> starts a race, then one line per horse: <b>number name odds</b>. Picks close at the first race time (change it in settings). A new date starts a fresh race day; the last one is saved to the season first.</p>'+
+    '<div class="row"><label>Date</label><input type="date" data-fk="card.date" value="'+esc(fv('card.date',m?m.date:''))+'"></div>'+
+    '<div class="row"><label>Title</label><input data-fk="card.title" placeholder="Champ de Mars · Sat 7 Nov" value="'+esc(fv('card.title',m?m.title:''))+'"></div>'+
+    '<textarea data-fk="card.txt" placeholder="R1 12:30&#10;1 Amancio 1000&#10;2 Captain Marsala 520&#10;&#10;R2 13:05&#10;1 Palermo 1500">'+esc(fv('card.txt',cardText(m)))+'</textarea>'+
+    '<button class="btn sm" data-act="savecard">Save race card</button></div>';
+  return h;
+}
+
+/* ---------- actions ---------- */
+async function doLogin(){
+  const u=cleanUser($('#lu').value),p=$('#lp').value,up=S.loginMode==='up';
+  S.err=null;
+  if(!u){S.err='Type a username (letters and numbers).';render();return;}
+  if(up&&p!==$('#lp2').value){S.err='The two passwords don\'t match.';render();return;}
+  if(p.length<6){S.err='Password must be at least 6 characters.';render();return;}
+  S.saving=true;render();
+  try{
+    if(up){const cred=await createUserWithEmailAndPassword(auth,u+DOMAIN,p);await setDoc(doc(db,'users',cred.user.uid),{username:u,createdAt:serverTimestamp()});}
+    else await signInWithEmailAndPassword(auth,u+DOMAIN,p);
+  }catch(e){
+    const c=(e&&e.code)||'';
+    S.err=c.includes('email-already-in-use')?'That username is taken — try another, or sign in.':
+      (c.includes('invalid-credential')||c.includes('wrong-password')||c.includes('user-not-found'))?'Wrong username or password.':
+      c.includes('too-many-requests')?'Too many tries — wait a minute and try again.':'Something went wrong ('+c+').';
+  }
+  S.saving=false;render();
+}
+async function savePicks(){
+  if(!S.draft||!S.m)return;const id=targetUid();if(!id||!S.players[id])return;
+  S.saving=true;render();
+  const ok=await write(()=>setDoc(doc(db,'entries',id),{date:S.m.date,picks:JSON.parse(JSON.stringify(S.draft)),updatedAt:new Date().toISOString(),by:S.uid}),'Picks saved ✅');
+  S.saving=false;if(ok){S.dirty=false;S.savedAt=new Date().toISOString();}else if(deadlinePassed())toast('Picks are closed.');
+  render();
+}
+function saveRes(n){
+  const k='res.'+n+'.';const r=(S.m.results||{})[n]||{};const j=a=>(a||[]).join(',');
+  const body={p1:nums(fv(k+'p1',j(r.p1))),p2:nums(fv(k+'p2',j(r.p2))),p3:nums(fv(k+'p3',j(r.p3))),out:nums(fv(k+'out',j(r.out))),fav:nums(fv(k+'fav',r.fav||''))[0]||null};
+  if(body.out.length&&!body.fav){toast('Type the tote favourite for the horse that is out.');return;}
+  ['p1','p2','p3','out','fav'].forEach(f=>delete S.form[k+f]);
+  write(()=>updateDoc(doc(db,'meeting','current'),{['results.'+n]:body}),'Race '+n+' saved ✅');
+}
+function saveSet(){
+  const m=S.m;const dl=fromLocalInput(fv('set.dl',toLocalInput(m.deadline)))||m.deadline;
+  const o={deadline:dl,deadlineTs:Timestamp.fromDate(new Date(dl)),
+    outsiderMin:+fv('set.out',m.outsiderMin)||m.outsiderMin,oddsMin:+fv('set.odds',m.oddsMin)||m.oddsMin,loserMax:+fv('set.lose',m.loserMax)||m.loserMax};
+  Object.keys(S.form).filter(k=>k.startsWith('set.')).forEach(k=>delete S.form[k]);
+  write(()=>updateDoc(doc(db,'meeting','current'),o),'Settings saved ✅');
+}
+function saveSeason(){const m=S.m;write(()=>setDoc(doc(db,'history',m.date),{date:m.date,title:m.title||m.date,scores:todayScores(),savedAt:new Date().toISOString()}),'Saved to season 🏆');}
+async function saveCard(){
+  const m=S.m;const date=fv('card.date',m?m.date:'');const title=fv('card.title',m?m.title:'')||date;
+  const races=parseCard(fv('card.txt',cardText(m)));
+  if(!date){toast('Pick a date first.');return;}
+  if(!races.length){toast('No races found — check the format.');return;}
+  const same=m&&m.date===date;
+  if(m&&!same&&m.results&&Object.keys(m.results).length&&!S.hist.some(x=>x.id===m.date))
+    await write(()=>setDoc(doc(db,'history',m.date),{date:m.date,title:m.title||m.date,scores:todayScores(),savedAt:new Date().toISOString()}),'Last race day saved to season 🏆');
+  if(same)races.forEach(r=>{const old=m.races.find(x=>x.n===r.n);if(old)r.group=old.group||0;});
+  const t=(races[0].time||'').match(/^(\d{1,2}):(\d{2})$/);
+  const deadline=same?m.deadline:new Date(date+'T'+(t?t[1].padStart(2,'0')+':'+t[2]:'12:30')+':00+04:00').toISOString();
+  const d={date,title,races,results:same?(m.results||{}):{},deadline,deadlineTs:Timestamp.fromDate(new Date(deadline)),
+    outsiderMin:m?m.outsiderMin:650,oddsMin:m?m.oddsMin:1000,loserMax:m?m.loserMax:570};
+  Object.keys(S.form).filter(k=>k.startsWith('card.')).forEach(k=>delete S.form[k]);
+  write(()=>setDoc(doc(db,'meeting','current'),d),same?'Race card updated ✅':'New race day ready 🐎');
+}
+function addPlayer(id){const u=S.users[id]||{};const name=String(fv('pl.'+id,u.username||'')).trim();if(!name){toast('Type a name.');return;}delete S.form['pl.'+id];write(()=>setDoc(doc(db,'players',id),{name,username:u.username||''}),name+' added ✅');}
+function rmPlayer(id){if(S.confirmRm!==id){S.confirmRm=id;toast('Tap Remove again to confirm');setTimeout(()=>{if(S.confirmRm===id)S.confirmRm=null;},4000);return;}S.confirmRm=null;write(()=>deleteDoc(doc(db,'players',id)),'Removed');}
+
+/* ---------- events ---------- */
+document.addEventListener('submit',ev=>{if(ev.target.id==='loginForm'){ev.preventDefault();doLogin();}});
+document.addEventListener('click',ev=>{
+  const t=ev.target.closest('button');if(!t)return;
+  if(t.dataset.tab){S.tab=t.dataset.tab;try{history.replaceState(null,'','#'+S.tab);}catch(e){}render();window.scrollTo(0,0);return;}
+  const a=t.dataset.act;if(!a)return;
+  if(a==='toggleLogin'){S.loginMode=S.loginMode==='up'?'in':'up';S.err=null;render();return;}
+  if(a==='logout'){signOut(auth);return;}
+  if(a==='save'){savePicks();return;}
+  if(!S.admin)return;
+  if(a==='saveres')saveRes(+t.dataset.r);
+  else if(a==='saveset')saveSet();
+  else if(a==='season')saveSeason();
+  else if(a==='savecard')saveCard();
+  else if(a==='addplayer')addPlayer(t.dataset.u);
+  else if(a==='rmplayer')rmPlayer(t.dataset.u);
+});
+document.addEventListener('input',ev=>{const k=ev.target.dataset&&ev.target.dataset.fk;if(k)S.form[k]=ev.target.value;});
+document.addEventListener('change',ev=>{
+  const t=ev.target;
+  if(t.id==='actAs'){S.actAs=(t.value&&t.value!==S.uid)?t.value:null;S.dirty=false;S.draftFor=null;syncDraft();render();return;}
+  if(t.dataset.fk){S.form[t.dataset.fk]=t.value;return;}
+  if(t.dataset.g&&S.admin){const n=+t.dataset.g;const races=S.m.races.map(r=>Object.assign({},r,{group:r.n===n?+t.value:(+r.group||0)}));write(()=>updateDoc(doc(db,'meeting','current'),{races}),'Race '+n+' updated ✅');return;}
+  const k=t.dataset.k;if(!k||!S.draft)return;const [a,b]=k.split('.');
+  if(a==='race'||a==='acc'){if(t.value)S.draft[a][b]=+t.value;else delete S.draft[a][b];}
+  else if(b!==undefined)S.draft[a][+b]=t.value;else S.draft[a]=t.value;
+  S.dirty=true;render();
+});
+document.addEventListener('focusout',()=>setTimeout(()=>{if(S.pend)render();},400));
+window.addEventListener('hashchange',()=>{const t=location.hash.slice(1);if(t&&t!==S.tab){S.tab=t;render();}});
+setInterval(()=>{const el=document.getElementById('cd');if(el)el.textContent=cd();const l=!!deadlinePassed();if(S.wasLocked!==null&&l!==S.wasLocked)render();S.wasLocked=l;},20000);
+
+/* ---------- render ---------- */
+function render(){
+  const ae=document.activeElement;
+  if(ae&&(ae.tagName==='INPUT'||ae.tagName==='TEXTAREA')&&$('#app').contains(ae)&&ae.closest('#loginForm')==null){S.pend=true;return;}
+  S.pend=false;
+  $('#who').innerHTML=S.user?'<div>'+esc(isPlayer()?pname(S.uid):S.username||'')+'</div><button data-act="logout">Sign out</button>':'';
+  if(!S.user){
+    $('#nav').innerHTML='';$('#sub').innerHTML='';
+    if(S.authReady){const lu=$('#lu')&&$('#lu').value;$('#app').innerHTML=vLogin();if(lu&&$('#lu'))$('#lu').value=lu;}
+    return;
+  }
+  const tabs=[['picks','My picks'],['all','All picks'],['board','Scores']];if(S.admin)tabs.push(['admin','Admin']);
+  if(!tabs.some(t=>t[0]===S.tab))S.tab='picks';
+  $('#nav').innerHTML=tabs.map(t=>'<button data-tab="'+t[0]+'" class="'+(S.tab===t[0]?'on':'')+'">'+t[1]+'</button>').join('');
+  $('#sub').innerHTML=S.m?esc(S.m.title||S.m.date)+' · <span id="cd">'+esc(cd())+'</span>':'';
+  let h='';
+  if(S.err)h+='<div class="card warn">'+esc(S.err)+'</div>';
+  if(!S.mLoaded)h+='<div class="card">Loading…</div>';
+  else h+=({picks:vPicks,all:vAll,board:vBoard,admin:vAdmin})[S.tab]();
+  $('#app').innerHTML=h;
+}
+
+/* ---------- data ---------- */
+function stopAll(){S.unsubs.forEach(u=>{try{u();}catch(e){}});S.unsubs=[];}
+function onErr(what){return e=>{console.error(what,e);S.err='Could not load '+what+' ('+(e.code||'error')+').';render();};}
+function startData(){
+  stopAll();
+  S.unsubs.push(onSnapshot(collection(db,'players'),q=>{const o={};q.forEach(d=>o[d.id]=d.data());const was=isPlayer();S.players=o;if(!was&&isPlayer())startEntries();syncDraft();render();},onErr('players')));
+  S.unsubs.push(onSnapshot(doc(db,'meeting','current'),s=>{
+    S.m=s.exists()?Object.assign({outsiderMin:650,oddsMin:1000,loserMax:570,races:[],results:{}},s.data()):null;
+    S.mLoaded=true;syncDraft();render();},e=>{S.mLoaded=true;onErr('the race day')(e);}));
+  S.unsubs.push(onSnapshot(collection(db,'history'),q=>{S.hist=q.docs.map(d=>Object.assign({id:d.id},d.data()));render();},onErr('season')));
+  if(S.admin)S.unsubs.push(onSnapshot(collection(db,'users'),q=>{const o={};q.forEach(d=>o[d.id]=d.data());S.users=o;render();},onErr('accounts')));
+  else S.unsubs.push(onSnapshot(doc(db,'users',S.uid),s=>{if(s.exists())S.username=s.data().username||S.username;render();},()=>{}));
+  startEntries();
+}
+let entriesUnsub=null;
+function startEntries(){
+  if(entriesUnsub){try{entriesUnsub();}catch(e){}entriesUnsub=null;}
+  if(!S.admin&&!isPlayer())return;
+  entriesUnsub=onSnapshot(collection(db,'entries'),q=>{const o={};q.forEach(d=>o[d.id]=d.data());S.entries=o;syncDraft();render();},onErr('picks'));
+  S.unsubs.push(()=>{if(entriesUnsub)entriesUnsub();});
+}
+onAuthStateChanged(auth,u=>{
+  S.authReady=true;S.err=null;
+  stopAll();S.user=u;S.uid=u?u.uid:null;S.m=null;S.mLoaded=false;S.players={};S.entries={};S.hist=[];S.users={};S.draft=null;S.draftFor=null;S.dirty=false;S.actAs=null;
+  if(u){S.username=(u.email||'').replace(DOMAIN,'');S.admin=S.username===ADMIN_USER;startData();}
+  else{S.admin=false;S.username=null;}
+  render();
+});
+</script>
+</body>
+</html>
