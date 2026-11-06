@@ -71,7 +71,7 @@ td.n{font-weight:700}
 <div id="toast"></div>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
-import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, EmailAuthProvider, reauthenticateWithCredential, updatePassword } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
 import { getFirestore, doc, collection, onSnapshot, setDoc, updateDoc, deleteDoc, serverTimestamp, Timestamp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -109,7 +109,8 @@ function write(fn,msg){wq=wq.then(fn).then(()=>{toast(msg||'Saved ✅');return t
 /* ---------- helpers ---------- */
 function deadlinePassed(){return S.m&&S.m.deadline&&Date.now()>=Date.parse(S.m.deadline);}
 function isLocked(){return deadlinePassed()&&!S.admin;}
-function cd(){if(!S.m||!S.m.deadline)return'';const ms=Date.parse(S.m.deadline)-Date.now();if(ms<=0)return'Picks closed';const h=Math.floor(ms/3600e3),mi=Math.floor(ms%3600e3/60e3);const d=Math.floor(h/24);return'Picks close in '+(d?d+'d '+(h%24)+'h':(h?h+'h ':'')+mi+'m');}
+function clock(){if(!S.m||!S.m.deadline)return'';const ms=Date.parse(S.m.deadline)-Date.now();if(ms<=0)return'';const t=Math.floor(ms/1000),d=Math.floor(t/86400),h=Math.floor(t%86400/3600),mi=Math.floor(t%3600/60),s=t%60,p=n=>String(n).padStart(2,'0');return(d?d+'d ':'')+p(h)+':'+p(mi)+':'+p(s);}
+function cd(){if(!S.m||!S.m.deadline)return'';const c=clock();return c?'Picks close in '+c:'Picks closed';}
 function pk(v){if(!v)return null;const [r,h]=String(v).split('-').map(Number);return r&&h?{r,h}:null;}
 function horse(m,r,h){const rc=m.races.find(x=>x.n==r);return rc&&rc.horses.find(x=>x.no==h);}
 function hl(m,r,h){const x=horse(m,r,h);return 'R'+r+' #'+h+' '+(x?x.name:'?');}
@@ -182,7 +183,11 @@ function anyOpts(m,filter,val){return m.races.map(rc=>{const hs=rc.horses.filter
 
 function vPicks(){
   const m=S.m;let h='';
-  if(!isPlayer()&&!S.admin)return '<div class="card"><h2>Almost there 👋</h2><p class="hint">Your account <b>'+esc(S.username)+'</b> is created. Ask Yash to add you to the league — this page updates by itself once he does.</p></div>';
+  if(!isPlayer()&&!S.admin){
+    if(S.myStatus==='rejected')return '<div class="card"><h2>Not accepted</h2><p class="hint">Your request to join the league was not accepted. If you think this is a mistake, speak to Yash.</p></div>';
+    return '<div class="card"><h2>Almost there 👋</h2><p class="hint">Your account <b>'+esc(S.username)+'</b> is created. Ask Yash to add you to the league — this page updates by itself once he does.</p></div>';
+  }
+  if(m&&m.deadline){const c=clock();h+='<div class="card" style="text-align:center">'+(c?'<div class="small">Picks close in</div><div id="bigcd" style="font:800 34px ui-monospace,Menlo,monospace;color:var(--green);letter-spacing:1px">'+c+'</div><div class="small">'+esc(fmt(m.deadline))+'</div>':'<b>🔒 Picks closed</b> <span class="small">'+esc(fmt(m.deadline))+'</span>')+'</div>';}
   if(!m)return '<div class="card"><h2>No race day set up yet</h2><p class="hint">'+(S.admin?'Go to Admin and paste this week\'s race card and odds.':'Check back once Yash adds this week\'s race card.')+'</p></div>';
   if(S.admin){
     const ids=playerIds();
@@ -195,6 +200,7 @@ function vPicks(){
   const d=S.draft,dis=isLocked()?' disabled':'';
   const sel=(k,opts)=>'<select data-k="'+k+'"'+dis+'><option value="">— choose —</option>'+opts+'</select>';
   if(isLocked())h+='<div class="card"><b>🔒 Picks are closed.</b> <span class="hint">See All picks and Scores.</span></div>';
+  if(entryFor(targetUid())&&!S.dirty)h+='<div class="card"><div class="row" style="margin:0"><span style="flex:1"><b>✅ Picks saved.</b> <span class="small">Keep a copy for yourself.</span></span><button class="btn sm" style="margin:0" data-act="imgpicks" data-u="'+targetUid()+'">📷 Save as image</button></div>'+(S.imgUrl?'<p class="small" style="margin:8px 0 0">If nothing downloaded, <a href="'+S.imgUrl+'" download="'+esc(S.imgName||'picks')+'.png">tap here</a> or long-press the image below and choose Save.</p><img src="'+S.imgUrl+'" style="width:100%;margin-top:8px;border-radius:8px">':'')+'</div>';
   h+='<div class="card"><h2>Race picks — '+esc(pname(targetUid()))+'</h2><p class="hint">One horse per race. 1st 10 · 2nd 7 · 3rd 5. Group races pay only a win: G3 15 · G2 20 · G1 25.</p>'+
     m.races.map(rc=>'<div class="row"><label>R'+rc.n+(rc.group?'<span class="badge">G'+rc.group+'</span>':'')+'<br><small class="pend">'+esc(rc.time||'')+'</small></label>'+sel('race.'+rc.n,raceOpts(rc,d.race[rc.n]))+'</div>').join('')+'</div>';
   const two=(key,filter)=>[0,1].map(i=>'<div class="row"><label>'+(i+1)+'</label>'+sel(key+'.'+i,anyOpts(m,filter,d[key][i]))+'</div>').join('')+(d[key][0]&&d[key][0]===d[key][1]?'<p class="warn">Both picks are the same horse.</p>':'');
@@ -220,28 +226,91 @@ function vAll(){
   const rows=playerIds().map(id=>({id,p:pname(id),e:entryFor(id)}));
   if(!deadlinePassed())return '<div class="card"><h2>Who\'s in?</h2><p class="hint">Everyone\'s picks are revealed when picks close ('+esc(fmt(m.deadline))+').</p><table>'+rows.map(r=>'<tr><td><b>'+esc(r.p)+'</b></td><td>'+(r.e?'✅ Picks in':'⏳ Not yet')+'</td></tr>').join('')+'</table></div>';
   return rows.map(r=>{if(!r.e)return '<div class="card"><h2>'+esc(r.p)+'</h2><p class="hint">No picks submitted.</p></div>';const sc=score(m,r.e);
-    return '<div class="card"><h2>'+esc(r.p)+'<span class="total" style="float:right">'+sc.total+'</span></h2>'+itemsTable(sc.items)+'</div>';}).join('');
+    return '<div class="card"><h2>'+esc(r.p)+'<span class="total" style="float:right">'+sc.total+'</span></h2>'+itemsTable(sc.items)+
+      '<button class="btn sm alt" data-act="imgreport" data-u="'+r.id+'">📷 Save '+esc(r.p)+'\'s report as image</button></div>';}).join('')+
+    (S.imgUrl?'<div class="card"><p class="small">If nothing downloaded, long-press the image and choose Save.</p><img src="'+S.imgUrl+'" style="width:100%;border-radius:8px"></div>':'');
 }
 
-function todayScores(){const m=S.m;const o={};playerIds().forEach(id=>{const e=entryFor(id);o[pname(id)]=e?score(m,e).total:0;});return o;}
+function racesDone(m){return m?m.races.filter(rc=>((m.results||{})[rc.n]||{}).p1&&m.results[rc.n].p1.length).length:0;}
+function allDone(m){return !!m&&m.races.length>0&&racesDone(m)===m.races.length;}
+// scores for today keyed by uid: {uid:{name,total}}
+function todayScores(){const m=S.m;const o={};playerIds().forEach(id=>{const e=entryFor(id);o[id]={name:pname(id),total:e?score(m,e).total:0};});return o;}
+function histVal(v){return typeof v==='number'?v:(v&&+v.total)||0;}
+function seasonTable(){
+  const m=S.m;const season={};
+  playerIds().forEach(id=>season[id]=+(S.players[id].startPoints||0));
+  S.hist.forEach(x=>Object.keys(x.scores||{}).forEach(id=>{if(id in season)season[id]+=histVal(x.scores[id]);}));
+  const saved=m&&S.hist.some(x=>x.id===m.date);
+  if(m&&!saved){const ts=todayScores();Object.keys(ts).forEach(id=>{season[id]+=ts[id].total;});}
+  return Object.keys(season).map(id=>({id,p:pname(id),t:season[id]})).sort((a,b)=>b.t-a.t);
+}
 function vBoard(){
   const m=S.m;let h='';
-  const season={};playerIds().forEach(id=>season[pname(id)]=0);
-  S.hist.forEach(x=>Object.keys(x.scores||{}).forEach(p=>{season[p]=(season[p]||0)+(+x.scores[p]||0);}));
   if(m){
-    const done=m.races.filter(rc=>((m.results||{})[rc.n]||{}).p1&&m.results[rc.n].p1.length).length;
-    const ts=todayScores();const saved=S.hist.some(x=>x.id===m.date);
-    if(!saved)Object.keys(ts).forEach(p=>{season[p]=(season[p]||0)+ts[p];});
-    const today=Object.keys(ts).map(p=>({p,t:ts[p]})).sort((a,b)=>b.t-a.t);
-    h+='<div class="card"><h2>Today — '+esc(m.title||m.date)+'</h2><p class="hint">'+done+'/'+m.races.length+' races resulted. Points update live.</p><table>'+
-      today.map((x,i)=>'<tr><td><span class="rank">'+(i+1)+'</span><b>'+esc(x.p)+'</b></td><td class="n">'+x.t+'</td></tr>').join('')+'</table></div>';
+    const done=racesDone(m);const ts=todayScores();
+    const today=Object.keys(ts).map(id=>({id,p:ts[id].name,t:ts[id].total})).sort((a,b)=>b.t-a.t);
+    h+='<div class="card"><h2>Today — '+esc(m.title||m.date)+(allDone(m)?' <span class="badge" style="background:var(--green)">FINAL</span>':'')+'</h2><p class="hint">'+done+'/'+m.races.length+' races resulted. '+(allDone(m)?'All results are in.':'Points update live.')+'</p><table>'+
+      today.map((x,i)=>'<tr><td><span class="rank">'+(i+1)+'</span><b>'+esc(x.p)+'</b></td><td class="n">'+x.t+'</td></tr>').join('')+'</table>'+
+      (deadlinePassed()?'<p class="hint" style="margin-top:8px">Full pick-by-pick breakdown is in <b>All picks</b>.</p>':'')+'</div>';
   }
-  const sRows=Object.keys(season).map(p=>({p,t:season[p]})).sort((a,b)=>b.t-a.t);
-  h+='<div class="card"><h2>🏆 Season</h2><table>'+sRows.map((x,i)=>'<tr><td><span class="rank">'+(i+1)+'</span><b>'+esc(x.p)+'</b></td><td class="n">'+x.t+'</td></tr>').join('')+'</table></div>';
+  const anyStart=playerIds().some(id=>+(S.players[id].startPoints||0));
+  h+='<div class="card"><h2>🏆 Season</h2>'+(anyStart?'<p class="hint">Includes points from before the app.</p>':'')+'<table>'+seasonTable().map((x,i)=>'<tr><td><span class="rank">'+(i+1)+'</span><b>'+esc(x.p)+'</b></td><td class="n">'+x.t+'</td></tr>').join('')+'</table>'+
+    '<button class="btn sm alt" data-act="imgboard">📷 Save leaderboard as image</button></div>';
   const past=S.hist.slice().sort((a,b)=>a.id<b.id?1:-1);
-  if(past.length)h+='<div class="card"><h2>Past race days</h2><table>'+past.map(x=>'<tr><td>'+esc(x.title||x.id)+'</td><td>'+Object.keys(x.scores||{}).sort((a,b)=>x.scores[b]-x.scores[a]).map(p=>esc(p)+' '+x.scores[p]).join(' · ')+'</td></tr>').join('')+'</table></div>';
+  if(past.length)h+='<div class="card"><h2>Past race days</h2><table>'+past.map(x=>'<tr><td>'+esc(x.title||x.id)+'</td><td>'+Object.keys(x.scores||{}).sort((a,b)=>histVal(x.scores[b])-histVal(x.scores[a])).map(id=>esc((x.scores[id]&&x.scores[id].name)||pname(id))+' '+histVal(x.scores[id])).join(' · ')+'</td></tr>').join('')+'</table></div>';
   return h;
 }
+
+/* ---------- images ---------- */
+function drawCard(title,sub,rows,footer){
+  const W=1080,pad=48,rowH=58,headH=210,footH=footer?120:60;
+  const c=document.createElement('canvas');c.width=W;c.height=headH+rows.length*rowH+footH;
+  const g=c.getContext('2d');
+  g.fillStyle='#f4f1ea';g.fillRect(0,0,W,c.height);
+  g.fillStyle='#1f6b3a';g.fillRect(0,0,W,headH-30);
+  g.fillStyle='#fff';g.font='bold 54px system-ui,sans-serif';g.fillText('🐎 '+title,pad,90);
+  g.font='32px system-ui,sans-serif';g.fillStyle='#cfe6d6';g.fillText(sub,pad,142);
+  let y=headH+10;
+  rows.forEach((r,i)=>{
+    if(r.head){g.fillStyle='#c9952b';g.font='bold 30px system-ui,sans-serif';g.fillText(r.head,pad,y+28);y+=rowH;return;}
+    if(i%2){g.fillStyle='#ebe6da';g.fillRect(pad-12,y-6,W-2*pad+24,rowH);}
+    g.fillStyle='#1d2a22';g.font='bold 30px system-ui,sans-serif';g.fillText(r[0],pad,y+34);
+    g.font='30px system-ui,sans-serif';let t=String(r[1]||'');while(g.measureText(t).width>(r[2]!=null?560:740)&&t.length>3)t=t.slice(0,-2);g.fillText(t,pad+260,y+34);
+    if(r[2]!=null){g.textAlign='right';g.fillStyle=r[3]==='win'?'#1f6b3a':r[3]==='lose'?'#b3392f':'#6b766e';g.font='bold 30px system-ui,sans-serif';g.fillText(String(r[2]),W-pad,y+34);g.textAlign='left';}
+    y+=rowH;
+  });
+  if(footer){g.fillStyle='#1f6b3a';g.font='bold 44px system-ui,sans-serif';g.fillText(footer,pad,y+70);}
+  return c;
+}
+async function shareCanvas(c,name){
+  const blob=await new Promise(r=>c.toBlob(r,'image/png'));
+  const file=new File([blob],name+'.png',{type:'image/png'});
+  try{if(navigator.canShare&&navigator.canShare({files:[file]})){await navigator.share({files:[file],title:name});return;}}catch(e){if(e&&e.name==='AbortError')return;}
+  const url=URL.createObjectURL(blob);
+  S.imgUrl=url;S.imgName=name;render();
+  const a=document.createElement('a');a.href=url;a.download=name+'.png';document.body.appendChild(a);a.click();a.remove();
+}
+function picksRows(m,e){
+  const p=(e&&e.picks)||{};const rows=[];const L=(r,h)=>r&&h?hl(m,r,h):'—';
+  rows.push({head:'RACE PICKS'});
+  m.races.forEach(rc=>rows.push(['Race '+rc.n+(rc.group?' (G'+rc.group+')':''),L(rc.n,(p.race||{})[rc.n])]));
+  rows.push({head:'SPECIALS'});
+  [0,1].forEach(i=>{const x=pk((p.bankers||[])[i]);rows.push(['Banker '+(i+1),x?L(x.r,x.h):'—']);});
+  [0,1].forEach(i=>{const x=pk((p.outsiders||[])[i]);rows.push(['Outsider '+(i+1),x?L(x.r,x.h):'—']);});
+  {const x=pk(p.oddsHorse);rows.push(['Odds horse',x?L(x.r,x.h):'—']);}
+  [0,1].forEach(i=>{const x=pk((p.losers||[])[i]);rows.push(['Fav to lose '+(i+1),x?L(x.r,x.h):'—']);});
+  rows.push({head:'PLACE ACCUMULATOR'});
+  rows.push(['Horses',m.races.map(rc=>'R'+rc.n+' #'+((p.acc||{})[rc.n]||'–')).join(' ')]);
+  return rows;
+}
+function imgPicks(uid){const m=S.m,e=entryFor(uid);if(!m||!e)return;shareCanvas(drawCard(pname(uid)+"'s picks",m.title||m.date,picksRows(m,e)),'picks-'+pname(uid)+'-'+m.date);}
+function imgReport(uid){const m=S.m,e=entryFor(uid);if(!m||!e)return;const sc=score(m,e);
+  const rows=sc.items.map(i=>[i.cat.replace('Place accumulator','Accumulator'),i.txt+(i.res&&i.res!=='pending'?' — '+i.res:''),i.st==='pend'?'…':i.pts,i.st]);
+  shareCanvas(drawCard(pname(uid)+' — race day',m.title||m.date,rows,'Total: '+sc.total+' pts'+(allDone(m)?'':' (so far)')),'report-'+pname(uid)+'-'+m.date);}
+function imgBoard(){const m=S.m;const rows=[];
+  if(m){rows.push({head:'TODAY'});const ts=todayScores();Object.keys(ts).map(id=>ts[id]).sort((a,b)=>b.total-a.total).forEach((x,i)=>rows.push([(i+1)+'. '+x.name,'',x.total,'win']));}
+  rows.push({head:'SEASON'});seasonTable().forEach((x,i)=>rows.push([(i+1)+'. '+x.p,'',x.t,'win']));
+  shareCanvas(drawCard('Tote League',m?(m.title||m.date):'Season',rows),'leaderboard'+(m?'-'+m.date:''));}
 
 function cardText(m){return(m?m.races:[]).map(r=>'R'+r.n+' '+(r.time||'')+'\n'+r.horses.map(h=>h.no+' '+h.name+' '+h.odds).join('\n')).join('\n\n');}
 function parseCard(txt){const races=[];let cur=null;String(txt||'').split('\n').forEach(line=>{const l=line.trim();if(!l)return;let mm=l.match(/^R(?:ace)?\s*(\d+)\b\s*(.*)$/i);if(mm){cur={n:+mm[1],time:mm[2].trim(),group:0,horses:[]};races.push(cur);return;}mm=l.match(/^(\d+)[\s.)-]+(.+?)\s+(?:Rs\.?\s*)?(\d+)$/i);if(mm&&cur)cur.horses.push({no:+mm[1],name:mm[2].trim(),odds:+mm[3]});});return races.filter(r=>r.horses.length);}
@@ -249,13 +318,15 @@ function parseCard(txt){const races=[];let cur=null;String(txt||'').split('\n').
 function vAdmin(){
   const m=S.m;let h='';
   // players
-  const pending=Object.keys(S.users).filter(id=>!S.players[id]);
+  const pending=Object.keys(S.users).filter(id=>!S.players[id]&&S.users[id].status!=='rejected');
+  const rejected=Object.keys(S.users).filter(id=>!S.players[id]&&S.users[id].status==='rejected');
   h+='<div class="card"><h2>👥 Players</h2>';
-  h+=playerIds().length?'<table>'+playerIds().map(id=>'<tr><td><b>'+esc(pname(id))+'</b> <span class="small">'+esc((S.users[id]||{}).username||'')+'</span></td><td style="text-align:right"><button class="link" style="color:var(--red)" data-act="rmplayer" data-u="'+id+'">Remove</button></td></tr>').join('')+'</table>':'<p class="hint">No players yet.</p>';
+  h+=playerIds().length?'<p class="hint">“Start pts” = points each player already had before the app. The season table adds every race day on top.</p><table><tr><th>Player</th><th>Start pts</th><th></th></tr>'+playerIds().map(id=>{const k='sp.'+id;return '<tr><td><b>'+esc(pname(id))+'</b><br><span class="small">'+esc((S.users[id]||{}).username||S.players[id].username||'')+'</span></td><td><div style="display:flex;gap:4px"><input inputmode="numeric" style="width:80px" data-fk="'+k+'" value="'+esc(fv(k,S.players[id].startPoints||0))+'"><button class="btn sm" style="margin:0" data-act="savestart" data-u="'+id+'">Save</button></div></td><td style="text-align:right"><button class="link" style="color:var(--red)" data-act="rmplayer" data-u="'+id+'">Remove</button></td></tr>';}).join('')+'</table>':'<p class="hint">No players yet.</p>';
   if(pending.length){
-    h+='<p class="hint" style="margin-top:10px"><b>New accounts waiting:</b> give each a display name and add them.</p>'+pending.map(id=>{const u=S.users[id]||{};const k='pl.'+id;const def=u.username?u.username.charAt(0).toUpperCase()+u.username.slice(1):'';
-      return '<div class="row"><label>'+esc(u.username||'?')+'</label><input data-fk="'+k+'" value="'+esc(fv(k,def))+'"><button class="btn sm" style="margin:0" data-act="addplayer" data-u="'+id+'">Add</button></div>';}).join('');
-  } else h+='<p class="hint" style="margin-top:8px">Brothers create their own account on the sign-in page, then show up here for you to add.</p>';
+    h+='<p class="hint" style="margin-top:10px"><b>Waiting to join:</b> give a display name and Add, or Reject.</p>'+pending.map(id=>{const u=S.users[id]||{};const k='pl.'+id;const def=u.username?u.username.charAt(0).toUpperCase()+u.username.slice(1):'';
+      return '<div class="row"><label>'+esc(u.username||'?')+'</label><input data-fk="'+k+'" value="'+esc(fv(k,def))+'"><button class="btn sm" style="margin:0" data-act="addplayer" data-u="'+id+'">Add</button><button class="btn sm red" style="margin:0" data-act="reject" data-u="'+id+'">Reject</button></div>';}).join('');
+  } else h+='<p class="hint" style="margin-top:8px">New accounts show up here for you to add or reject.</p>';
+  if(rejected.length)h+='<p class="small" style="margin-top:8px">Rejected: '+rejected.map(id=>esc((S.users[id]||{}).username||'?')+' <button class="link" data-act="unreject" data-u="'+id+'">undo</button>').join(' · ')+'</p>';
   h+='</div>';
   if(m){
     const saved=S.hist.some(x=>x.id===m.date);
@@ -275,7 +346,7 @@ function vAdmin(){
       '<div class="row"><label>Odds horse ≥ Rs</label><input inputmode="numeric" data-fk="set.odds" value="'+esc(fv('set.odds',m.oddsMin))+'"></div>'+
       '<div class="row"><label>Fav to lose &lt; Rs</label><input inputmode="numeric" data-fk="set.lose" value="'+esc(fv('set.lose',m.loserMax))+'"></div>'+
       '<button class="btn sm" data-act="saveset">Save settings</button></div>';
-    h+='<div class="card"><h2>🏆 Season</h2><p class="hint">'+(saved?'Today is saved to the season. Saving again updates it.':'When all races are in, save today\'s points to the season table.')+'</p><button class="btn sm" data-act="season">'+(saved?'Update season with today':'Save today to season')+'</button></div>';
+    h+='<div class="card"><h2>🏆 Season</h2><p class="hint">'+(saved?'Today is saved to the season — it updates by itself if you correct a result.':'Today is added to the season automatically once all '+m.races.length+' results are in. You can also save it now.')+'</p><button class="btn sm" data-act="season">'+(saved?'Update season with today':'Save today to season')+'</button></div>';
   }
   h+='<div class="card"><h2>📋 Race card & bookmaker odds</h2><p class="hint">For a new week: change the date and paste the card. A line <b>R1 12:30</b> starts a race, then one line per horse: <b>number name odds</b>. Picks close at the first race time (change it in settings). A new date starts a fresh race day; the last one is saved to the season first.</p>'+
     '<div class="row"><label>Date</label><input type="date" data-fk="card.date" value="'+esc(fv('card.date',m?m.date:''))+'"></div>'+
@@ -285,7 +356,46 @@ function vAdmin(){
   return h;
 }
 
+function vSettings(){
+  const me=S.players[S.uid];let h='';
+  h+='<div class="card"><h2>👤 My account</h2><p class="hint">Username (for signing in): <b>'+esc(S.username)+'</b></p>';
+  if(me){h+='<div class="row"><label>Display name</label><input data-fk="me.name" maxlength="30" value="'+esc(fv('me.name',me.name||''))+'"></div><button class="btn sm" data-act="savename">Save name</button>';}
+  else h+='<p class="hint">You can set your display name once you are in the league.</p>';
+  h+='</div>';
+  h+='<div class="card"><h2>🔑 Change password</h2>'+
+    '<div class="row"><label>Current</label><input type="password" id="pw0" autocomplete="current-password"></div>'+
+    '<div class="row"><label>New</label><input type="password" id="pw1" autocomplete="new-password"></div>'+
+    '<div class="row"><label>Repeat new</label><input type="password" id="pw2" autocomplete="new-password"></div>'+
+    (S.pwErr?'<p class="warn">'+esc(S.pwErr)+'</p>':'')+
+    '<button class="btn sm" data-act="changepw"'+(S.saving?' disabled':'')+'>Change password</button></div>';
+  h+='<div class="card"><button class="btn red" data-act="logout">Sign out</button></div>';
+  return h;
+}
+
 /* ---------- actions ---------- */
+async function changePw(){
+  const a=$('#pw0').value,b=$('#pw1').value,c=$('#pw2').value;S.pwErr=null;
+  if(b.length<6)S.pwErr='New password must be at least 6 characters.';else if(b!==c)S.pwErr='The new passwords don\'t match.';
+  if(S.pwErr){render();return;}
+  S.saving=true;render();
+  try{await reauthenticateWithCredential(auth.currentUser,EmailAuthProvider.credential(auth.currentUser.email,a));await updatePassword(auth.currentUser,b);toast('Password changed ✅');}
+  catch(e){const k=(e&&e.code)||'';S.pwErr=(k.includes('invalid-credential')||k.includes('wrong-password'))?'Your current password is wrong.':k.includes('too-many')?'Too many tries — wait a minute.':'Could not change password ('+k+').';}
+  S.saving=false;render();
+}
+function saveName(){const n=String(fv('me.name','')).trim().slice(0,30);if(!n){toast('Type a name.');return;}delete S.form['me.name'];write(()=>updateDoc(doc(db,'players',S.uid),{name:n}),'Name saved ✅');}
+function rejectUser(id){write(()=>updateDoc(doc(db,'users',id),{status:'rejected'}),'Rejected');}
+function unreject(id){write(()=>updateDoc(doc(db,'users',id),{status:'pending'}),'Moved back to waiting');}
+function saveStart(id){const v=Math.round(+fv('sp.'+id,S.players[id].startPoints||0)||0);delete S.form['sp.'+id];write(()=>updateDoc(doc(db,'players',id),{startPoints:v}),'Start points saved ✅');}
+// admin: keep today's season record in sync once all results are in
+let lastAuto='';
+function autoSeason(){
+  if(!S.admin||!S.m||!allDone(S.m)||!S.mLoaded||!S.entriesLoaded||!S.histLoaded)return;
+  const sc=todayScores();const st=o=>JSON.stringify(Object.keys(o||{}).sort().map(k=>[k,o[k]&&o[k].name,histVal(o[k])]));const sig=S.m.date+st(sc);
+  const h=S.hist.find(x=>x.id===S.m.date);
+  if(h&&st(h.scores)===st(sc))return;
+  if(sig===lastAuto)return;lastAuto=sig;
+  write(()=>setDoc(doc(db,'history',S.m.date),{date:S.m.date,title:S.m.title||S.m.date,scores:sc,savedAt:new Date().toISOString()}),'All results in — season updated 🏆');
+}
 async function doLogin(){
   const u=cleanUser($('#lu').value),p=$('#lp').value,up=S.loginMode==='up';
   S.err=null;
@@ -349,11 +459,16 @@ function rmPlayer(id){if(S.confirmRm!==id){S.confirmRm=id;toast('Tap Remove agai
 document.addEventListener('submit',ev=>{if(ev.target.id==='loginForm'){ev.preventDefault();doLogin();}});
 document.addEventListener('click',ev=>{
   const t=ev.target.closest('button');if(!t)return;
-  if(t.dataset.tab){S.tab=t.dataset.tab;try{history.replaceState(null,'','#'+S.tab);}catch(e){}render();window.scrollTo(0,0);return;}
+  if(t.dataset.tab){S.tab=t.dataset.tab;S.imgUrl=null;try{history.replaceState(null,'','#'+S.tab);}catch(e){}render();window.scrollTo(0,0);return;}
   const a=t.dataset.act;if(!a)return;
   if(a==='toggleLogin'){S.loginMode=S.loginMode==='up'?'in':'up';S.err=null;render();return;}
   if(a==='logout'){signOut(auth);return;}
   if(a==='save'){savePicks();return;}
+  if(a==='imgpicks'){imgPicks(t.dataset.u);return;}
+  if(a==='imgreport'){imgReport(t.dataset.u);return;}
+  if(a==='imgboard'){imgBoard();return;}
+  if(a==='savename'){saveName();return;}
+  if(a==='changepw'){changePw();return;}
   if(!S.admin)return;
   if(a==='saveres')saveRes(+t.dataset.r);
   else if(a==='saveset')saveSet();
@@ -361,6 +476,9 @@ document.addEventListener('click',ev=>{
   else if(a==='savecard')saveCard();
   else if(a==='addplayer')addPlayer(t.dataset.u);
   else if(a==='rmplayer')rmPlayer(t.dataset.u);
+  else if(a==='reject')rejectUser(t.dataset.u);
+  else if(a==='unreject')unreject(t.dataset.u);
+  else if(a==='savestart')saveStart(t.dataset.u);
 });
 document.addEventListener('input',ev=>{const k=ev.target.dataset&&ev.target.dataset.fk;if(k)S.form[k]=ev.target.value;});
 document.addEventListener('change',ev=>{
@@ -375,10 +493,11 @@ document.addEventListener('change',ev=>{
 });
 document.addEventListener('focusout',()=>setTimeout(()=>{if(S.pend)render();},400));
 window.addEventListener('hashchange',()=>{const t=location.hash.slice(1);if(t&&t!==S.tab){S.tab=t;render();}});
-setInterval(()=>{const el=document.getElementById('cd');if(el)el.textContent=cd();const l=!!deadlinePassed();if(S.wasLocked!==null&&l!==S.wasLocked)render();S.wasLocked=l;},20000);
+setInterval(()=>{const el=document.getElementById('cd');if(el)el.textContent=cd();const b=document.getElementById('bigcd');if(b)b.textContent=clock();const l=!!deadlinePassed();if(S.wasLocked!==null&&l!==S.wasLocked)render();S.wasLocked=l;},1000);
 
 /* ---------- render ---------- */
 function render(){
+  try{autoSeason();}catch(e){console.error(e);}
   const ae=document.activeElement;
   if(ae&&(ae.tagName==='INPUT'||ae.tagName==='TEXTAREA')&&$('#app').contains(ae)&&ae.closest('#loginForm')==null){S.pend=true;return;}
   S.pend=false;
@@ -388,14 +507,14 @@ function render(){
     if(S.authReady){const lu=$('#lu')&&$('#lu').value;$('#app').innerHTML=vLogin();if(lu&&$('#lu'))$('#lu').value=lu;}
     return;
   }
-  const tabs=[['picks','My picks'],['all','All picks'],['board','Scores']];if(S.admin)tabs.push(['admin','Admin']);
+  const tabs=[['picks','Picks'],['all','All picks'],['board','Scores']];if(S.admin)tabs.push(['admin','Admin']);tabs.push(['settings','⚙️']);
   if(!tabs.some(t=>t[0]===S.tab))S.tab='picks';
   $('#nav').innerHTML=tabs.map(t=>'<button data-tab="'+t[0]+'" class="'+(S.tab===t[0]?'on':'')+'">'+t[1]+'</button>').join('');
   $('#sub').innerHTML=S.m?esc(S.m.title||S.m.date)+' · <span id="cd">'+esc(cd())+'</span>':'';
   let h='';
   if(S.err)h+='<div class="card warn">'+esc(S.err)+'</div>';
   if(!S.mLoaded)h+='<div class="card">Loading…</div>';
-  else h+=({picks:vPicks,all:vAll,board:vBoard,admin:vAdmin})[S.tab]();
+  else h+=(S.tab==='settings'?vSettings():({picks:vPicks,all:vAll,board:vBoard,admin:vAdmin})[S.tab]());
   $('#app').innerHTML=h;
 }
 
@@ -408,21 +527,21 @@ function startData(){
   S.unsubs.push(onSnapshot(doc(db,'meeting','current'),s=>{
     S.m=s.exists()?Object.assign({outsiderMin:650,oddsMin:1000,loserMax:570,races:[],results:{}},s.data()):null;
     S.mLoaded=true;syncDraft();render();},e=>{S.mLoaded=true;onErr('the race day')(e);}));
-  S.unsubs.push(onSnapshot(collection(db,'history'),q=>{S.hist=q.docs.map(d=>Object.assign({id:d.id},d.data()));render();},onErr('season')));
+  S.unsubs.push(onSnapshot(collection(db,'history'),q=>{S.hist=q.docs.map(d=>Object.assign({id:d.id},d.data()));S.histLoaded=true;render();},onErr('season')));
   if(S.admin)S.unsubs.push(onSnapshot(collection(db,'users'),q=>{const o={};q.forEach(d=>o[d.id]=d.data());S.users=o;render();},onErr('accounts')));
-  else S.unsubs.push(onSnapshot(doc(db,'users',S.uid),s=>{if(s.exists())S.username=s.data().username||S.username;render();},()=>{}));
+  else S.unsubs.push(onSnapshot(doc(db,'users',S.uid),s=>{if(s.exists()){S.username=s.data().username||S.username;S.myStatus=s.data().status||null;}render();},()=>{}));
   startEntries();
 }
 let entriesUnsub=null;
 function startEntries(){
   if(entriesUnsub){try{entriesUnsub();}catch(e){}entriesUnsub=null;}
   if(!S.admin&&!isPlayer())return;
-  entriesUnsub=onSnapshot(collection(db,'entries'),q=>{const o={};q.forEach(d=>o[d.id]=d.data());S.entries=o;syncDraft();render();},onErr('picks'));
+  entriesUnsub=onSnapshot(collection(db,'entries'),q=>{const o={};q.forEach(d=>o[d.id]=d.data());S.entries=o;S.entriesLoaded=true;syncDraft();render();},onErr('picks'));
   S.unsubs.push(()=>{if(entriesUnsub)entriesUnsub();});
 }
 onAuthStateChanged(auth,u=>{
   S.authReady=true;S.err=null;
-  stopAll();S.user=u;S.uid=u?u.uid:null;S.m=null;S.mLoaded=false;S.players={};S.entries={};S.hist=[];S.users={};S.draft=null;S.draftFor=null;S.dirty=false;S.actAs=null;
+  stopAll();S.user=u;S.uid=u?u.uid:null;S.m=null;S.mLoaded=false;S.players={};S.entries={};S.hist=[];S.users={};S.draft=null;S.draftFor=null;S.dirty=false;S.actAs=null;S.myStatus=null;S.imgUrl=null;S.entriesLoaded=false;S.histLoaded=false;S.pwErr=null;S.tab=S.tab||'picks';
   if(u){S.username=(u.email||'').replace(DOMAIN,'');S.admin=S.username===ADMIN_USER;startData();}
   else{S.admin=false;S.username=null;}
   render();
