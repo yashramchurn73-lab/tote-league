@@ -107,10 +107,15 @@ let wq=Promise.resolve();
 function write(fn,msg){wq=wq.then(fn).then(()=>{toast(msg||'Saved ✅');return true;}).catch(e=>{console.error(e);toast('Could not save ('+((e&&e.code)||'error').replace('firestore/','')+')');return false;});return wq;}
 
 /* ---------- helpers ---------- */
+function raceStart(m,rc){const t=String(rc.time||'').match(/^(\d{1,2}):(\d{2})$/);return t?Date.parse(m.date+'T'+t[1].padStart(2,'0')+':'+t[2]+':00+04:00'):null;}
+function raceStarted(m,rc){const t=raceStart(m,rc);return t!=null&&Date.now()>=t;}
+function nextRaceStart(m){const ts=m.races.map(rc=>raceStart(m,rc)).filter(t=>t!=null&&t>Date.now()).sort((a,b)=>a-b);return ts[0]||null;}
+function lateFor(uid){const p=S.players[uid];return p&&S.m&&p.lateDate===S.m.date&&p.lateUntil&&Date.now()<Date.parse(p.lateUntil)?p.lateUntil:null;}
+function myLate(){return !S.admin&&deadlinePassed()&&lateFor(S.uid);}
 function deadlinePassed(){return S.m&&S.m.deadline&&Date.now()>=Date.parse(S.m.deadline);}
-function isLocked(){return deadlinePassed()&&!S.admin;}
-function clock(){if(!S.m||!S.m.deadline)return'';const ms=Date.parse(S.m.deadline)-Date.now();if(ms<=0)return'';const t=Math.floor(ms/1000),d=Math.floor(t/86400),h=Math.floor(t%86400/3600),mi=Math.floor(t%3600/60),s=t%60,p=n=>String(n).padStart(2,'0');return(d?d+'d ':'')+p(h)+':'+p(mi)+':'+p(s);}
-function cd(){if(!S.m||!S.m.deadline)return'';const c=clock();return c?'Picks close in '+c:'Picks closed';}
+function isLocked(){return deadlinePassed()&&!S.admin&&!lateFor(S.uid);}
+function clock(){if(!S.m||!S.m.deadline)return'';const ms=Date.parse(myLate()||S.m.deadline)-Date.now();if(ms<=0)return'';const t=Math.floor(ms/1000),d=Math.floor(t/86400),h=Math.floor(t%86400/3600),mi=Math.floor(t%3600/60),s=t%60,p=n=>String(n).padStart(2,'0');return(d?d+'d ':'')+p(h)+':'+p(mi)+':'+p(s);}
+function cd(){if(!S.m||!S.m.deadline)return'';const c=clock();return c?(myLate()?'Late entry closes in ':'Picks close in ')+c:'Picks closed';}
 function pk(v){if(!v)return null;const [r,h]=String(v).split('-').map(Number);return r&&h?{r,h}:null;}
 function horse(m,r,h){const rc=m.races.find(x=>x.n==r);return rc&&rc.horses.find(x=>x.no==h);}
 function hl(m,r,h){const x=horse(m,r,h);return 'R'+r+' #'+h+' '+(x?x.name:'?');}
@@ -179,7 +184,7 @@ function vLogin(){
 }
 
 function raceOpts(rc,val){return rc.horses.map(h=>'<option value="'+h.no+'"'+(+val===h.no?' selected':'')+'>#'+h.no+' '+esc(h.name)+' · Rs'+h.odds+'</option>').join('');}
-function anyOpts(m,filter,val){return m.races.map(rc=>{const hs=rc.horses.filter(filter);if(!hs.length)return'';return '<optgroup label="Race '+rc.n+'">'+hs.map(h=>{const v=rc.n+'-'+h.no;return '<option value="'+v+'"'+(val===v?' selected':'')+'>R'+rc.n+' #'+h.no+' '+esc(h.name)+' · Rs'+h.odds+'</option>';}).join('')+'</optgroup>';}).join('');}
+function anyOpts(m,filter,val){return m.races.map(rc=>{if(myLate()&&raceStarted(m,rc))return'';const hs=rc.horses.filter(filter);if(!hs.length)return'';return '<optgroup label="Race '+rc.n+'">'+hs.map(h=>{const v=rc.n+'-'+h.no;return '<option value="'+v+'"'+(val===v?' selected':'')+'>R'+rc.n+' #'+h.no+' '+esc(h.name)+' · Rs'+h.odds+'</option>';}).join('')+'</optgroup>';}).join('');}
 
 function vPicks(){
   const m=S.m;let h='';
@@ -187,7 +192,7 @@ function vPicks(){
     if(S.myStatus==='rejected')return '<div class="card"><h2>Not accepted</h2><p class="hint">Your request to join the league was not accepted. If you think this is a mistake, speak to Yash.</p></div>';
     return '<div class="card"><h2>Almost there 👋</h2><p class="hint">Your account <b>'+esc(S.username)+'</b> is created. Ask Yash to add you to the league — this page updates by itself once he does.</p></div>';
   }
-  if(m&&m.deadline){const c=clock();h+='<div class="card" style="text-align:center">'+(c?'<div class="small">Picks close in</div><div id="bigcd" style="font:800 34px ui-monospace,Menlo,monospace;color:var(--green);letter-spacing:1px">'+c+'</div><div class="small">'+esc(fmt(m.deadline))+'</div>':'<b>🔒 Picks closed</b> <span class="small">'+esc(fmt(m.deadline))+'</span>')+'</div>';}
+  if(m&&m.deadline){const c=clock();h+='<div class="card" style="text-align:center">'+(c?'<div class="small">'+(myLate()?'⏰ Your late entry closes in':'Picks close in')+'</div><div id="bigcd" style="font:800 34px ui-monospace,Menlo,monospace;color:var(--green);letter-spacing:1px">'+c+'</div><div class="small">'+esc(fmt(myLate()||m.deadline))+'</div>'+(myLate()?'<div class="small">Races already started are locked.</div>':''):'<b>🔒 Picks closed</b> <span class="small">'+esc(fmt(m.deadline))+'</span>')+'</div>';}
   if(!m)return '<div class="card"><h2>No race day set up yet</h2><p class="hint">'+(S.admin?'Go to Admin and paste this week\'s race card and odds.':'Check back once Yash adds this week\'s race card.')+'</p></div>';
   if(S.admin){
     const ids=playerIds();
@@ -197,19 +202,20 @@ function vPicks(){
       '</select></div><p class="hint">Switch to a brother to type in picks he sent you on WhatsApp.</p></div>';
     if(!S.players[targetUid()])return h+(ids.length?'':'<div class="card"><p class="hint">No players yet — add them in Admin (add yourself too).</p></div>');
   }
-  const d=S.draft,dis=isLocked()?' disabled':'';
-  const sel=(k,opts)=>'<select data-k="'+k+'"'+dis+'><option value="">— choose —</option>'+opts+'</select>';
+  const d=S.draft,dis=isLocked()?' disabled':'';const late=myLate();
+  const sel=(k,opts,rc)=>'<select data-k="'+k+'"'+((dis||(late&&rc&&raceStarted(m,rc)))?' disabled':'')+'><option value="">— choose —</option>'+opts+'</select>';
+  const okH=rc=>!late||!raceStarted(m,rc);
   if(isLocked())h+='<div class="card"><b>🔒 Picks are closed.</b> <span class="hint">See All picks and Scores.</span></div>';
   if(entryFor(targetUid())&&!S.dirty)h+='<div class="card"><div class="row" style="margin:0"><span style="flex:1"><b>✅ Picks saved.</b> <span class="small">Keep a copy for yourself.</span></span><button class="btn sm" style="margin:0" data-act="imgpicks" data-u="'+targetUid()+'">📷 Save as image</button></div>'+(S.imgUrl?'<p class="small" style="margin:8px 0 0">If nothing downloaded, <a href="'+S.imgUrl+'" download="'+esc(S.imgName||'picks')+'.png">tap here</a> or long-press the image below and choose Save.</p><img src="'+S.imgUrl+'" style="width:100%;margin-top:8px;border-radius:8px">':'')+'</div>';
   h+='<div class="card"><h2>Race picks — '+esc(pname(targetUid()))+'</h2><p class="hint">One horse per race. 1st 10 · 2nd 7 · 3rd 5. Group races pay only a win: G3 15 · G2 20 · G1 25.</p>'+
-    m.races.map(rc=>'<div class="row"><label>R'+rc.n+(rc.group?'<span class="badge">G'+rc.group+'</span>':'')+'<br><small class="pend">'+esc(rc.time||'')+'</small></label>'+sel('race.'+rc.n,raceOpts(rc,d.race[rc.n]))+'</div>').join('')+'</div>';
+    m.races.map(rc=>'<div class="row"><label>R'+rc.n+(rc.group?'<span class="badge">G'+rc.group+'</span>':'')+'<br><small class="pend">'+esc(rc.time||'')+'</small></label>'+sel('race.'+rc.n,raceOpts(rc,d.race[rc.n]),rc)+'</div>').join('')+'</div>';
   const two=(key,filter)=>[0,1].map(i=>'<div class="row"><label>'+(i+1)+'</label>'+sel(key+'.'+i,anyOpts(m,filter,d[key][i]))+'</div>').join('')+(d[key][0]&&d[key][0]===d[key][1]?'<p class="warn">Both picks are the same horse.</p>':'');
   h+='<div class="card"><h2>🏦 Bankers</h2><p class="hint">Any horse. 20 pts each — must WIN.</p>'+two('bankers',()=>true)+'</div>';
   h+='<div class="card"><h2>🎯 Outsiders</h2><p class="hint">Odds Rs'+m.outsiderMin+' or more. 25 pts each — must WIN.</p>'+two('outsiders',x=>x.odds>=m.outsiderMin)+'</div>';
   h+='<div class="card"><h2>💰 Odds horse</h2><p class="hint">Odds Rs'+m.oddsMin+' or more. 20 pts if it finishes top 3.</p><div class="row"><label>1</label>'+sel('oddsHorse',anyOpts(m,x=>x.odds>=m.oddsMin,d.oddsHorse))+'</div></div>';
   h+='<div class="card"><h2>👎 Favourites to lose</h2><p class="hint">Odds under Rs'+m.loserMax+'. 15 pts each if it does NOT win.</p>'+two('losers',x=>x.odds<m.loserMax)+'</div>';
   h+='<div class="card"><h2>🔗 Place accumulator</h2><p class="hint">One horse per race. 20 pts only if every one finishes top 3.</p>'+
-    m.races.map(rc=>'<div class="row"><label>R'+rc.n+'</label>'+sel('acc.'+rc.n,raceOpts(rc,d.acc[rc.n]))+'</div>').join('')+'</div>';
+    m.races.map(rc=>'<div class="row"><label>R'+rc.n+'</label>'+sel('acc.'+rc.n,raceOpts(rc,d.acc[rc.n]),rc)+'</div>').join('')+'</div>';
   if(!isLocked()){
     const filled=m.races.filter(rc=>d.race[rc.n]).length+m.races.filter(rc=>d.acc[rc.n]).length+[...d.bankers,...d.outsiders,...d.losers,d.oddsHorse].filter(Boolean).length;
     const total=m.races.length*2+7;
@@ -224,6 +230,7 @@ function itemsTable(items){return '<table><tr><th>Pick</th><th>Horse</th><th>Res
 function vAll(){
   const m=S.m;if(!m)return '<div class="card"><p class="hint">No race day yet.</p></div>';
   const rows=playerIds().map(id=>({id,p:pname(id),e:entryFor(id)}));
+  if(myLate())return '<div class="card"><h2>Hidden for now</h2><p class="hint">You have a late entry open. Everyone\'s picks show here once it closes.</p></div>';
   if(!deadlinePassed())return '<div class="card"><h2>Who\'s in?</h2><p class="hint">Everyone\'s picks are revealed when picks close ('+esc(fmt(m.deadline))+').</p><table>'+rows.map(r=>'<tr><td><b>'+esc(r.p)+'</b></td><td>'+(r.e?'✅ Picks in':'⏳ Not yet')+'</td></tr>').join('')+'</table></div>';
   return rows.map(r=>{if(!r.e)return '<div class="card"><h2>'+esc(r.p)+'</h2><p class="hint">No picks submitted.</p></div>';const sc=score(m,r.e);
     return '<div class="card"><h2>'+esc(r.p)+'<span class="total" style="float:right">'+sc.total+'</span></h2>'+itemsTable(sc.items)+
@@ -321,7 +328,7 @@ function vAdmin(){
   const pending=Object.keys(S.users).filter(id=>!S.players[id]&&S.users[id].status!=='rejected');
   const rejected=Object.keys(S.users).filter(id=>!S.players[id]&&S.users[id].status==='rejected');
   h+='<div class="card"><h2>👥 Players</h2>';
-  h+=playerIds().length?'<p class="hint">“Start pts” = points each player already had before the app. The season table adds every race day on top.</p><table><tr><th>Player</th><th>Start pts</th><th></th></tr>'+playerIds().map(id=>{const k='sp.'+id;return '<tr><td><b>'+esc(pname(id))+'</b><br><span class="small">'+esc((S.users[id]||{}).username||S.players[id].username||'')+'</span></td><td><div style="display:flex;gap:4px"><input inputmode="numeric" style="width:80px" data-fk="'+k+'" value="'+esc(fv(k,S.players[id].startPoints||0))+'"><button class="btn sm" style="margin:0" data-act="savestart" data-u="'+id+'">Save</button></div></td><td style="text-align:right"><button class="link" style="color:var(--red)" data-act="rmplayer" data-u="'+id+'">Remove</button></td></tr>';}).join('')+'</table>':'<p class="hint">No players yet.</p>';
+  h+=playerIds().length?'<p class="hint">“Start pts” = points each player already had before the app. The season table adds every race day on top.</p><table><tr><th>Player</th><th>Start pts</th><th></th></tr>'+playerIds().map(id=>{const k='sp.'+id;return '<tr><td><b>'+esc(pname(id))+'</b><br><span class="small">'+esc((S.users[id]||{}).username||S.players[id].username||'')+'</span></td><td><div style="display:flex;gap:4px"><input inputmode="numeric" style="width:80px" data-fk="'+k+'" value="'+esc(fv(k,S.players[id].startPoints||0))+'"><button class="btn sm" style="margin:0" data-act="savestart" data-u="'+id+'">Save</button></div></td><td style="text-align:right">'+(S.m&&deadlinePassed()?(lateFor(id)?'<span class="small">⏰ late till '+esc(fmt(lateFor(id)).slice(-5))+'</span> <button class="link" data-act="latecancel" data-u="'+id+'">cancel</button><br>':'<button class="link" data-act="late" data-u="'+id+'">⏰ Allow late entry</button><br>'):'')+'<button class="link" style="color:var(--red)" data-act="rmplayer" data-u="'+id+'">Remove</button></td></tr>';}).join('')+'</table>':'<p class="hint">No players yet.</p>';
   if(pending.length){
     h+='<p class="hint" style="margin-top:10px"><b>Waiting to join:</b> give a display name and Add, or Reject.</p>'+pending.map(id=>{const u=S.users[id]||{};const k='pl.'+id;const def=u.username?u.username.charAt(0).toUpperCase()+u.username.slice(1):'';
       return '<div class="row"><label>'+esc(u.username||'?')+'</label><input data-fk="'+k+'" value="'+esc(fv(k,def))+'"><button class="btn sm" style="margin:0" data-act="addplayer" data-u="'+id+'">Add</button><button class="btn sm red" style="margin:0" data-act="reject" data-u="'+id+'">Reject</button></div>';}).join('');
@@ -383,6 +390,9 @@ async function changePw(){
   S.saving=false;render();
 }
 function saveName(){const n=String(fv('me.name','')).trim().slice(0,30);if(!n){toast('Type a name.');return;}delete S.form['me.name'];write(()=>updateDoc(doc(db,'players',S.uid),{name:n}),'Name saved ✅');}
+function allowLate(id){const m=S.m;const t=nextRaceStart(m);if(!t){toast('No race left to start.');return;}const iso=new Date(t).toISOString();
+  write(()=>updateDoc(doc(db,'players',id),{lateUntil:iso,lateTs:Timestamp.fromDate(new Date(t)),lateDate:m.date}),pname(id)+' can pick until '+fmt(iso).slice(-5)+' ⏰');}
+function cancelLate(id){write(()=>updateDoc(doc(db,'players',id),{lateUntil:null,lateTs:null,lateDate:null}),'Late entry cancelled');}
 function rejectUser(id){write(()=>updateDoc(doc(db,'users',id),{status:'rejected'}),'Rejected');}
 function unreject(id){write(()=>updateDoc(doc(db,'users',id),{status:'pending'}),'Moved back to waiting');}
 function saveStart(id){const v=Math.round(+fv('sp.'+id,S.players[id].startPoints||0)||0);delete S.form['sp.'+id];write(()=>updateDoc(doc(db,'players',id),{startPoints:v}),'Start points saved ✅');}
@@ -477,6 +487,8 @@ document.addEventListener('click',ev=>{
   else if(a==='addplayer')addPlayer(t.dataset.u);
   else if(a==='rmplayer')rmPlayer(t.dataset.u);
   else if(a==='reject')rejectUser(t.dataset.u);
+  else if(a==='late')allowLate(t.dataset.u);
+  else if(a==='latecancel')cancelLate(t.dataset.u);
   else if(a==='unreject')unreject(t.dataset.u);
   else if(a==='savestart')saveStart(t.dataset.u);
 });
@@ -493,7 +505,7 @@ document.addEventListener('change',ev=>{
 });
 document.addEventListener('focusout',()=>setTimeout(()=>{if(S.pend)render();},400));
 window.addEventListener('hashchange',()=>{const t=location.hash.slice(1);if(t&&t!==S.tab){S.tab=t;render();}});
-setInterval(()=>{const el=document.getElementById('cd');if(el)el.textContent=cd();const b=document.getElementById('bigcd');if(b)b.textContent=clock();const l=!!deadlinePassed();if(S.wasLocked!==null&&l!==S.wasLocked)render();S.wasLocked=l;},1000);
+setInterval(()=>{const el=document.getElementById('cd');if(el)el.textContent=cd();const b=document.getElementById('bigcd');if(b)b.textContent=clock();const l=(deadlinePassed()?'1':'0')+(myLate()?'L':'')+(S.m?S.m.races.filter(rc=>raceStarted(S.m,rc)).length:'');if(S.wasLocked!==null&&l!==S.wasLocked)render();S.wasLocked=l;},1000);
 
 /* ---------- render ---------- */
 function render(){
