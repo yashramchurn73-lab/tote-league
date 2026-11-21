@@ -394,6 +394,51 @@ function vSettings(){
 }
 
 
+
+/* ---------- automatic fixtures & results (ESPN public scoreboard) ---------- */
+const ESPN='https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/scoreboard?dates=';
+function ymd(d){return d.toISOString().slice(0,10).replace(/-/g,'');}
+let syncing=false;
+async function fSync(force){
+  if(syncing||!S.uid||!(S.admin||isPlayer()))return;
+  let last=0;try{last=+localStorage.getItem('fsync')||0;}catch(e){}
+  if(!force&&Date.now()-last<15*60e3)return;
+  syncing=true;try{localStorage.setItem('fsync',String(Date.now()));}catch(e){}
+  let added=0,res=0;
+  try{
+    const days=[];for(let i=-3;i<=7;i++){days.push(ymd(new Date(Date.now()+i*86400e3)));}
+    const evs=[];
+    for(const d of days){try{const r=await fetch(ESPN+d);if(!r.ok)continue;const j=await r.json();(j.events||[]).forEach(e=>evs.push(e));}catch(e){}}
+    const seen=new Set();
+    for(const e of evs){
+      if(seen.has(e.id))continue;seen.add(e.id);
+      const c=(e.competitions&&e.competitions[0]&&e.competitions[0].competitors)||[];
+      const H=c.find(x=>x.homeAway==='home'),A=c.find(x=>x.homeAway==='away');if(!H||!A)continue;
+      const home=canon(H.team.displayName),away=canon(A.team.displayName);
+      const kickoff=new Date(e.date).toISOString();
+      const st=(e.status&&e.status.type)||{};
+      const done=!!st.completed&&/FULL_TIME|FINAL/.test(st.name||'');
+      const postponed=/POSTPONED|CANCELED|CANCELLED/.test(st.name||'');
+      let result=null,score='';
+      if(done){const h=+H.score,a=+A.score;result=h>a?'H':h<a?'A':'D';score=h+'-'+a;}
+      const id='espn_'+e.id;
+      let m=S.fm.find(x=>x.id===id)||S.fm.find(x=>x.home===home&&x.away===away&&Math.abs(fKick(x)-Date.parse(kickoff))<12*3600e3);
+      if(m&&m.id!==id&&!S.admin)continue; // a pasted match: only the admin's app updates it
+      const data={home,away,kickoff,kickoffTs:Timestamp.fromDate(new Date(kickoff)),espn:e.id,postponed};
+      if(!m){await setDoc(doc(db,'fmatches',id),Object.assign(data,{result,score,auto:true}));added++;continue;}
+      const upd={};
+      if(m.kickoff!==kickoff){upd.kickoff=kickoff;upd.kickoffTs=data.kickoffTs;}
+      if(!!m.postponed!==postponed)upd.postponed=postponed;
+      if(done&&!m.manual&&(m.result!==result||m.score!==score)){upd.result=result;upd.score=score;res++;}
+      if(Object.keys(upd).length)await updateDoc(doc(db,'fmatches',m.id),upd);
+    }
+    if(added||res)toast('⚽ '+(added?added+' new match'+(added>1?'es':''):'')+(added&&res?' · ':'')+(res?res+' result'+(res>1?'s':'')+' updated':''));
+  }catch(e){console.error('sync',e);}
+  syncing=false;
+}
+function weekKey(iso){const d=new Date(Date.parse(iso)+4*3600e3);const back=(d.getUTCDay()+5)%7;const t=new Date(d.getTime()-back*86400e3);return t.toISOString().slice(0,10);}
+function weekLabel(k){const d=new Date(k+'T12:00:00Z');return 'Week of '+d.toLocaleDateString('en-GB',{day:'numeric',month:'short',timeZone:'UTC'});}
+
 /* ---------- football ---------- */
 const TEAMS={'Arsenal':['ARS','#EF0107','#fff'],'Aston Villa':['AVL','#670E36','#95BFE5'],'Bournemouth':['BOU','#DA291C','#111'],'Brentford':['BRE','#E30613','#fff'],'Brighton':['BHA','#0057B8','#fff'],'Burnley':['BUR','#6C1D45','#99D6EA'],'Chelsea':['CHE','#034694','#fff'],'Coventry':['COV','#59CBE8','#fff'],'Crystal Palace':['CRY','#1B458F','#C4122E'],'Everton':['EVE','#003399','#fff'],'Fulham':['FUL','#ffffff','#111'],'Hull':['HUL','#F5A12D','#111'],'Ipswich':['IPS','#3A64A3','#fff'],'Leeds':['LEE','#FFCD00','#1D428A'],'Liverpool':['LIV','#C8102E','#fff'],'Man City':['MCI','#6CABDD','#1C2C5B'],'Man Utd':['MUN','#DA291C','#FBE122'],'Newcastle':['NEW','#241F20','#fff'],"Nott'm Forest":['NFO','#DD0000','#fff'],'Sunderland':['SUN','#EB172B','#fff'],'Tottenham':['TOT','#132257','#fff'],'West Ham':['WHU','#7A263A','#1BB1E7'],'Wolves':['WOL','#FDB913','#231F20']};
 const ALIAS={'manchester city':'Man City','man city':'Man City','manchester united':'Man Utd','man united':'Man Utd','man utd':'Man Utd','afc bournemouth':'Bournemouth','brighton & hove albion':'Brighton','brighton and hove albion':'Brighton','coventry city':'Coventry','hull city':'Hull','ipswich town':'Ipswich','leeds united':'Leeds','newcastle united':'Newcastle','nottingham forest':"Nott'm Forest","nott'm forest":"Nott'm Forest",'tottenham hotspur':'Tottenham','spurs':'Tottenham','west ham united':'West Ham','wolverhampton wanderers':'Wolves','wolverhampton':'Wolves'};
@@ -422,7 +467,7 @@ function vFMatches(){
     const btn=(v,l)=>{let c=p===v?'on':'';if(m.result&&p===v)c=p===m.result?'ok':'bad';return '<button class="'+c+'" data-fpick="'+v+'" data-m="'+m.id+'"'+(lock?' disabled':'')+'>'+l+'</button>';};
     let others='';if(st)others='<div class="ko">'+playerIds().filter(id=>id!==me).map(id=>{const q=fPick(id,m.id);return esc(pname(id))+': '+(q?({H:'1',D:'X',A:'2'})[q]:'–');}).join(' · ')+'</div>';
     return '<div class="fx"><div class="tm">'+crest(m.home)+esc(m.home)+'</div><div><div class="hda">'+btn('H','1')+btn('D','X')+btn('A','2')+'</div><div class="ko">'+
-      (m.result?'<b>FT '+esc(m.score||({H:'Home win',D:'Draw',A:'Away win'})[m.result])+'</b>'+(pts!=null?' · <b class="'+(pts?'win':'lose')+'">'+pts+' pts</b>':''):st?'🔴 Started':esc(fmtKO(m.kickoff).split(', ').pop()))+'</div>'+others+'</div><div class="tm">'+crest(m.away)+esc(m.away)+'</div></div>';};
+      (m.postponed&&!m.result?'<b>Postponed</b>':m.result?'<b>FT '+esc(m.score||({H:'Home win',D:'Draw',A:'Away win'})[m.result])+'</b>'+(pts!=null?' · <b class="'+(pts?'win':'lose')+'">'+pts+' pts</b>':''):st?'🔴 Started':esc(fmtKO(m.kickoff).split(', ').pop()))+'</div>'+others+'</div><div class="tm">'+crest(m.away)+esc(m.away)+'</div></div>';};
   let lastDay='';let body='';
   live.forEach(m=>{const d=dayKey(m.kickoff);if(d!==lastDay){if(body)h+='<div class="card"><h2>'+esc(lastDay)+'</h2>'+body+'</div>';body='';lastDay=d;}body+=card(m);});
   if(body)h+='<div class="card"><h2>'+esc(lastDay)+'</h2>'+body+'</div>';
@@ -431,19 +476,20 @@ function vFMatches(){
 }
 function vFTable(){
   const t=fTotals();let h='<div class="card"><h2>⚽ Premier League table</h2><table><tr><th>Player</th><th class="n">Correct</th><th class="n">Pts</th></tr>'+t.map((x,i)=>'<tr><td><span class="rank">'+(i+1)+'</span><b>'+esc(x.p)+'</b></td><td class="n" style="font-weight:400">'+x.ok+'/'+x.n+'</td><td class="n">'+x.pts+'</td></tr>').join('')+'</table></div>';
-  const rounds={};S.fm.filter(m=>m.result).forEach(m=>{const r=m.mw||'—';(rounds[r]=rounds[r]||[]).push(m);});
-  const keys=Object.keys(rounds).sort((a,b)=>(+b||0)-(+a||0));
-  if(keys.length)h+='<div class="card"><h2>By matchweek</h2><table><tr><th>MW</th>'+playerIds().map(id=>'<th class="n">'+esc(pname(id))+'</th>').join('')+'</tr>'+keys.map(k=>'<tr><td>'+esc(k)+'</td>'+playerIds().map(id=>'<td class="n">'+rounds[k].reduce((a,m)=>a+(fPts(id,m)||0),0)+'</td>').join('')+'</tr>').join('')+'</table></div>';
+  const rounds={};S.fm.filter(m=>m.result).forEach(m=>{const r=weekKey(m.kickoff);(rounds[r]=rounds[r]||[]).push(m);});
+  const keys=Object.keys(rounds).sort().reverse();
+  if(keys.length)h+='<div class="card"><h2>By week</h2><table><tr><th>Week</th>'+playerIds().map(id=>'<th class="n">'+esc(pname(id))+'</th>').join('')+'</tr>'+keys.map(k=>'<tr><td>'+esc(weekLabel(k))+'</td>'+playerIds().map(id=>'<td class="n">'+rounds[k].reduce((a,m)=>a+(fPts(id,m)||0),0)+'</td>').join('')+'</tr>').join('')+'</table></div>';
   return h;
 }
 function parseFixtures(txt){const out=[];let mw=null;String(txt||'').split('\n').forEach(l=>{l=l.trim();if(!l)return;let x=l.match(/^(?:MW|matchweek|round)\s*(\d+)/i);if(x){mw=+x[1];return;}
   x=l.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{2})\s+(.+?)\s+(?:v|vs|-)\s+(.+)$/i);if(x){out.push({mw,kickoff:new Date(x[1]+'T'+x[2].padStart(2,'0')+':'+x[3]+':00+04:00').toISOString(),home:canon(x[4]),away:canon(x[5])});}});return out;}
 function vFAdmin(){
-  let h='<div class="card"><h2>➕ Add matches</h2><p class="hint">One line per match, <b>Mauritius time</b>: <b>2026-11-21 19:00 Chelsea v Leeds</b>. A line <b>MW11</b> sets the matchweek. Send me the fixtures each week and I\'ll give you this text ready to paste.</p>'+
+  let h='<div class="card"><h2>🔄 Automatic</h2><p class="hint">Fixtures for the next 7 days and results are fetched automatically whenever someone opens the app (every 15 min at most). Tap below to fetch now.</p><button class="btn sm" data-act="fsync">Fetch fixtures & results now</button></div>';
+  h+='<div class="card"><h2>➕ Add matches by hand</h2><p class="hint">Only needed if a match is missing. One line per match, <b>Mauritius time</b>: <b>2026-11-21 19:00 Chelsea v Leeds</b>.</p>'+
     '<textarea data-fk="fx.txt" style="min-height:160px" placeholder="MW11&#10;2026-11-21 16:30 Man City v Fulham">'+esc(fv('fx.txt',''))+'</textarea><button class="btn sm" data-act="fadd">Add matches</button></div>';
   const need=S.fm.filter(m=>fStarted(m)).sort((a,b)=>fKick(b)-fKick(a));
   const up=S.fm.filter(m=>!fStarted(m)).sort((a,b)=>fKick(a)-fKick(b));
-  h+='<div class="card"><h2>🏁 Results</h2><p class="hint">Tap the result. Score is optional (e.g. 2-1). Points update straight away.</p>'+(need.length?need.slice(0,30).map(m=>{const k='fs.'+m.id;return '<div class="rr"><b>'+esc(m.home)+' v '+esc(m.away)+'</b> <span class="small">'+esc(fmtKO(m.kickoff))+'</span><div class="row"><div class="hda">'+['H','D','A'].map(v=>'<button class="'+(m.result===v?'on':'')+'" data-fres="'+v+'" data-m="'+m.id+'">'+({H:'1',D:'X',A:'2'})[v]+'</button>').join('')+'</div><input data-fk="'+k+'" placeholder="Score" style="width:90px" value="'+esc(fv(k,m.score||''))+'"></div></div>';}).join(''):'<p class="hint">No match has kicked off yet.</p>')+'</div>';
+  h+='<div class="card"><h2>🏁 Results</h2><p class="hint">Results fill in automatically after full time. Tap here only to correct one — your choice then stays fixed.</p>'+(need.length?need.slice(0,30).map(m=>{const k='fs.'+m.id;return '<div class="rr"><b>'+esc(m.home)+' v '+esc(m.away)+'</b> <span class="small">'+esc(fmtKO(m.kickoff))+'</span><div class="row"><div class="hda">'+['H','D','A'].map(v=>'<button class="'+(m.result===v?'on':'')+'" data-fres="'+v+'" data-m="'+m.id+'">'+({H:'1',D:'X',A:'2'})[v]+'</button>').join('')+'</div><input data-fk="'+k+'" placeholder="Score" style="width:90px" value="'+esc(fv(k,m.score||''))+'"></div></div>';}).join(''):'<p class="hint">No match has kicked off yet.</p>')+'</div>';
   if(up.length)h+='<div class="card"><h2>Upcoming</h2><table>'+up.map(m=>'<tr><td>'+esc(fmtKO(m.kickoff))+'</td><td>'+esc(m.home)+' v '+esc(m.away)+'</td><td style="text-align:right"><button class="link" style="color:var(--red)" data-act="fdel" data-m="'+m.id+'">Delete</button></td></tr>').join('')+'</table></div>';
   return h;
 }
@@ -454,7 +500,7 @@ function fSavePick(mid,v){const m=S.fm.find(x=>x.id===mid);if(!m)return;const ui
 function fAdd(){const list=parseFixtures(fv('fx.txt',''));if(!list.length){toast('No matches found — check the format.');return;}
   delete S.form['fx.txt'];
   write(async()=>{for(const m of list){const ref=doc(collection(db,'fmatches'));await setDoc(ref,Object.assign(m,{kickoffTs:Timestamp.fromDate(new Date(m.kickoff)),result:null,score:''}));}},list.length+' matches added ⚽');}
-function fRes(mid,v){const k='fs.'+mid;const m=S.fm.find(x=>x.id===mid);const score=String(fv(k,m&&m.score||'')).trim();delete S.form[k];write(()=>updateDoc(doc(db,'fmatches',mid),{result:v,score}),'Result saved ✅');}
+function fRes(mid,v){const k='fs.'+mid;const m=S.fm.find(x=>x.id===mid);const score=String(fv(k,m&&m.score||'')).trim();delete S.form[k];write(()=>updateDoc(doc(db,'fmatches',mid),{result:v,score,manual:true}),'Result saved ✅');}
 function fDel(mid){if(S.confirmDel!==mid){S.confirmDel=mid;toast('Tap Delete again to confirm');setTimeout(()=>{if(S.confirmDel===mid)S.confirmDel=null;},4000);return;}S.confirmDel=null;write(()=>deleteDoc(doc(db,'fmatches',mid)),'Match deleted');}
 
 /* ---------- actions ---------- */
@@ -571,6 +617,7 @@ document.addEventListener('click',ev=>{
   else if(a==='reject')rejectUser(t.dataset.u);
   else if(a==='late')allowLate(t.dataset.u);
   else if(a==='fadd')fAdd();
+  else if(a==='fsync'){toast('Fetching…');fSync(true).then(()=>toast('Up to date ✅'));}
   else if(a==='fdel')fDel(t.dataset.m);
   else if(a==='latecancel')cancelLate(t.dataset.u);
   else if(a==='unreject')unreject(t.dataset.u);
@@ -590,6 +637,7 @@ document.addEventListener('change',ev=>{
 });
 document.addEventListener('focusout',()=>setTimeout(()=>{if(S.pend)render();},400));
 window.addEventListener('hashchange',()=>{const t=location.hash.slice(1);if(t&&t!==S.tab){S.tab=t;render();}});
+setInterval(()=>{if(S.mode==='foot')fSync(false);},5*60e3);
 setInterval(()=>{const el=document.getElementById('cd');if(el)el.textContent=cd();const b=document.getElementById('bigcd');if(b)b.textContent=clock();const l=(deadlinePassed()?'1':'0')+(myLate()?'L':'')+(S.m?S.m.races.filter(rc=>raceStarted(S.m,rc)).length:'');if(S.wasLocked!==null&&l!==S.wasLocked)render();S.wasLocked=l;},1000);
 
 /* ---------- render ---------- */
@@ -627,7 +675,7 @@ function startData(){
   S.unsubs.push(onSnapshot(doc(db,'meeting','current'),s=>{
     S.m=s.exists()?Object.assign({outsiderMin:650,oddsMin:1000,loserMax:570,races:[],results:{}},s.data()):null;
     S.mLoaded=true;syncDraft();render();},e=>{S.mLoaded=true;onErr('the race day')(e);}));
-  S.unsubs.push(onSnapshot(collection(db,'fmatches'),q=>{S.fm=q.docs.map(d=>Object.assign({id:d.id},d.data()));render();},onErr('matches')));
+  S.unsubs.push(onSnapshot(collection(db,'fmatches'),q=>{S.fm=q.docs.map(d=>Object.assign({id:d.id},d.data()));render();if(!S.fmLoaded){S.fmLoaded=true;setTimeout(()=>fSync(false),1500);}},onErr('matches')));
   S.unsubs.push(onSnapshot(collection(db,'history'),q=>{S.hist=q.docs.map(d=>Object.assign({id:d.id},d.data()));S.histLoaded=true;render();},onErr('season')));
   if(S.admin)S.unsubs.push(onSnapshot(collection(db,'users'),q=>{const o={};q.forEach(d=>o[d.id]=d.data());S.users=o;render();},onErr('accounts')));
   else S.unsubs.push(onSnapshot(doc(db,'users',S.uid),s=>{if(s.exists()){S.username=s.data().username||S.username;S.myStatus=s.data().status||null;}render();},()=>{}));
@@ -643,7 +691,7 @@ function startEntries(){
 }
 onAuthStateChanged(auth,u=>{
   S.authReady=true;S.err=null;
-  stopAll();S.user=u;S.uid=u?u.uid:null;S.m=null;S.mLoaded=false;S.players={};S.entries={};S.hist=[];S.users={};S.draft=null;S.draftFor=null;S.dirty=false;S.actAs=null;S.myStatus=null;S.imgUrl=null;S.entriesLoaded=false;S.histLoaded=false;S.pwErr=null;S.tab=S.tab||'picks';
+  stopAll();S.user=u;S.uid=u?u.uid:null;S.m=null;S.mLoaded=false;S.players={};S.entries={};S.hist=[];S.users={};S.draft=null;S.draftFor=null;S.dirty=false;S.actAs=null;S.myStatus=null;S.imgUrl=null;S.fmLoaded=false;S.entriesLoaded=false;S.histLoaded=false;S.pwErr=null;S.tab=S.tab||'picks';
   if(u){S.username=(u.email||'').replace(DOMAIN,'');S.admin=S.username===ADMIN_USER;startData();}
   else{S.admin=false;S.username=null;}
   render();
