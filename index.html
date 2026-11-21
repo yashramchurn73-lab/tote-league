@@ -74,6 +74,21 @@ td.n{font-weight:700}
 .hda button.ok{background:var(--green);color:#fff}
 .hda button.bad{background:var(--red);color:#fff;border-color:var(--red)}
 .hda button:disabled{cursor:default}
+.gwh{display:flex;justify-content:space-between;align-items:baseline}
+.gwt{font-size:13px;color:var(--mute);margin:4px 0 6px}
+.rrow{border-top:1px solid var(--line);padding:8px 0}
+.rteams{display:grid;grid-template-columns:1fr 92px 1fr;align-items:center;gap:6px}
+.rt{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;min-width:0}
+.rt span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rt.r{justify-content:flex-end;text-align:right}
+.rt .logo{width:26px;height:26px}.rt .crest{width:24px;height:27px;font-size:8px;border-width:1.5px}
+.rmid{text-align:center}.rmid .ko{margin-top:0}
+.sc{font:800 17px system-ui,sans-serif}
+.pks{display:flex;flex-wrap:wrap;gap:4px;justify-content:center;margin-top:6px}
+.pk{font-size:11.5px;padding:2px 8px;border-radius:10px;background:#efebe2;color:var(--ink)}
+.pk.good{background:#dcefe0;color:#1d6b35;font-weight:700}
+.pk.wrong{background:#f6dede;color:#a32626}
+.pk.late{background:#eee;color:#999;text-decoration:line-through}
 .ko{font-size:12px;color:var(--mute);text-align:center;margin-top:4px}
 #toast{position:fixed;left:50%;bottom:calc(22px + env(safe-area-inset-bottom));transform:translateX(-50%);background:#1d2a22;color:#fff;padding:10px 16px;border-radius:10px;font-size:14px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:20;max-width:90vw;text-align:center}
 #toast.show{opacity:1}
@@ -467,32 +482,51 @@ const fStarted=m=>Date.now()>=fKick(m);
 const fmtKO=iso=>new Date(iso).toLocaleString('en-GB',{timeZone:'Indian/Mauritius',weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
 const dayKey=iso=>new Date(iso).toLocaleDateString('en-GB',{timeZone:'Indian/Mauritius',weekday:'long',day:'numeric',month:'long'});
 function fPick(uid,mid){const d=S.fp[uid+'_'+mid];return d?d.pick:null;}
-function fPts(uid,m){const p=fPick(uid,m.id);return m.result&&p?(p===m.result?3:0):null;}
+// a pick only counts if it was saved before kick-off
+function fValid(uid,m){const d=S.fp[uid+'_'+m.id];if(!d||!d.pick)return null;if(d.updatedAt&&Date.parse(d.updatedAt)>=fKick(m))return null;return d.pick;}
+function fPts(uid,m){const p=fValid(uid,m);return m.result&&p?(p===m.result?3:0):null;}
 function fTotals(){const o={};playerIds().forEach(id=>{o[id]={id,p:pname(id),pts:0,ok:0,n:0};});
-  S.fm.forEach(m=>{if(!m.result)return;playerIds().forEach(id=>{const p=fPick(id,m.id);if(!p)return;o[id].n++;if(p===m.result){o[id].ok++;o[id].pts+=3;}});});
+  S.fm.forEach(m=>{if(!m.result)return;playerIds().forEach(id=>{const p=fValid(id,m);if(!p)return;o[id].n++;if(p===m.result){o[id].ok++;o[id].pts+=3;}});});
   return Object.values(o).sort((a,b)=>b.pts-a.pts||b.ok-a.ok);}
 function fTarget(){return S.factAs||S.uid;}
 function vFMatches(){
   if(!isPlayer()&&!S.admin)return vPicks();
   let h='';
-  if(S.admin){const ids=playerIds();h+='<div class="card"><div class="row"><label>Picks for</label><select id="factAs">'+ids.map(id=>'<option value="'+id+'"'+(fTarget()===id?' selected':'')+'>'+esc(pname(id))+(id===S.uid?' (me)':'')+'</option>').join('')+'</select></div><p class="hint">As admin you can enter or fix picks for anyone, even after kick-off.</p></div>';}
-  const me=fTarget();
   const gw=curGw();
   const list=S.fm.slice().sort((a,b)=>fKick(a)-fKick(b));
-  const live=list.filter(m=>!m.result&&(gw==null||!m.gw||m.gw===gw));const done=list.filter(m=>m.result).reverse();
-  if(!list.length)return h+'<div class="card"><h2>No matches yet</h2><p class="hint">'+(S.admin?'Add this week\'s fixtures in Admin.':'Yash will add this week\'s Premier League matches soon.')+'</p></div>';
-  if(gw)h+='<div class="card" style="text-align:center"><h2 style="margin:0">⚽ Gameweek '+gw+'</h2><p class="hint" style="margin:4px 0 0">Next gameweek opens once this one is finished.</p></div>';
-  h+='<div class="card"><p class="hint" style="margin:0">Tap <b>1</b> home win, <b>X</b> draw, <b>2</b> away win. Correct pick = <b>3 pts</b>. Each match locks at kick-off. It saves as soon as you tap.</p></div>';
-  const card=(m)=>{const p=fPick(me,m.id),st=fStarted(m),lock=st&&!S.admin,pts=fPts(me,m);
-    const btn=(v,l)=>{let c=p===v?'on':'';if(m.result&&p===v)c=p===m.result?'ok':'bad';return '<button class="'+c+'" data-fpick="'+v+'" data-m="'+m.id+'"'+(lock?' disabled':'')+'>'+l+'</button>';};
-    let others='';if(st)others='<div class="ko">'+playerIds().filter(id=>id!==me).map(id=>{const q=fPick(id,m.id);return esc(pname(id))+': '+(q?({H:'1',D:'X',A:'2'})[q]:'–');}).join(' · ')+'</div>';
-    return '<div class="fx"><div class="tm">'+crest(m.home,m.hLogo)+esc(m.home)+'</div><div><div class="hda">'+btn('H','1')+btn('D','X')+btn('A','2')+'</div><div class="ko">'+
-      (m.postponed&&!m.result?'<b>Postponed</b>':m.result?'<b>FT '+esc(m.score||({H:'Home win',D:'Draw',A:'Away win'})[m.result])+'</b>'+(pts!=null?' · <b class="'+(pts?'win':'lose')+'">'+pts+' pts</b>':''):st?'🔴 Started':esc(fmtKO(m.kickoff).split(', ').pop()))+'</div>'+others+'</div><div class="tm">'+crest(m.away,m.aLogo)+esc(m.away)+'</div></div>';};
-  let lastDay='';let body='';
-  live.forEach(m=>{const d=dayKey(m.kickoff);if(d!==lastDay){if(body)h+='<div class="card"><h2>'+esc(lastDay)+'</h2>'+body+'</div>';body='';lastDay=d;}body+=card(m);});
-  if(body)h+='<div class="card"><h2>'+esc(lastDay)+'</h2>'+body+'</div>';
-  if(done.length){h+='<div class="card"><h2>Results</h2>'+(S.showOld?done:done.slice(0,10)).map(card).join('')+(done.length>10?'<button class="link" data-act="fold">'+(S.showOld?'Show fewer':'Show all '+done.length)+'</button>':'')+'</div>';}
+  if(!list.length)return '<div class="card"><h2>No matches yet</h2><p class="hint">This gameweek\'s Premier League matches will appear here automatically.</p></div>';
+  const open=list.filter(m=>!m.result&&!fStarted(m)&&!m.postponed&&(gw==null||!m.gw||m.gw===gw));
+  const live=list.filter(m=>!m.result&&fStarted(m)&&!m.postponed&&(gw==null||!m.gw||m.gw===gw));
+  if(gw)h+='<div class="card" style="text-align:center"><h2 style="margin:0">⚽ Gameweek '+gw+'</h2><p class="hint" style="margin:4px 0 0">'+(open.length?open.length+' match'+(open.length>1?'es':'')+' still open to pick':'All picks locked for this gameweek')+'</p></div>';
+  if(open.length){
+    if(S.admin){const ids=playerIds();h+='<div class="card"><div class="row"><label>Picks for</label><select id="factAs">'+ids.map(id=>'<option value="'+id+'"'+(fTarget()===id?' selected':'')+'>'+esc(pname(id))+(id===S.uid?' (me)':'')+'</option>').join('')+'</select></div><p class="hint">You can enter a pick for a brother — only before kick-off.</p></div>';}
+    h+='<div class="card"><p class="hint" style="margin:0">Tap <b>1</b> home win, <b>X</b> draw, <b>2</b> away win. Correct pick = <b>3 pts</b>. Each match locks at kick-off — picks made after kick-off never count.</p></div>';
+    const me=fTarget();
+    const card=m=>{const p=fPick(me,m.id);const btn=(v,l)=>'<button class="'+(p===v?'on':'')+'" data-fpick="'+v+'" data-m="'+m.id+'">'+l+'</button>';
+      return '<div class="fx"><div class="tm">'+crest(m.home,m.hLogo)+esc(m.home)+'</div><div><div class="hda">'+btn('H','1')+btn('D','X')+btn('A','2')+'</div><div class="ko">'+esc(fmtKO(m.kickoff).split(', ').pop())+'</div></div><div class="tm">'+crest(m.away,m.aLogo)+esc(m.away)+'</div></div>';};
+    let lastDay='',body='';
+    open.forEach(m=>{const d=dayKey(m.kickoff);if(d!==lastDay){if(body)h+='<div class="card"><h2>'+esc(lastDay)+'</h2>'+body+'</div>';body='';lastDay=d;}body+=card(m);});
+    if(body)h+='<div class="card"><h2>'+esc(lastDay)+'</h2>'+body+'</div>';
+  }
+  if(live.length)h+='<div class="card"><h2>🔴 Playing now / awaiting result</h2>'+live.map(m=>resRow(m,true)).join('')+'</div>';
+  // results grouped by gameweek, newest first
+  const groups={};list.filter(m=>m.result).forEach(m=>{const k=m.gw||0;(groups[k]=groups[k]||[]).push(m);});
+  const keys=Object.keys(groups).map(Number).sort((a,b)=>b-a);
+  const shown=S.showOld?keys:keys.slice(0,2);
+  shown.forEach(k=>{const ms=groups[k];
+    const tot=playerIds().map(id=>esc(pname(id))+' <b>'+ms.reduce((a,m)=>a+(fPts(id,m)||0),0)+'</b>').join(' · ');
+    h+='<div class="card"><div class="gwh"><h2 style="margin:0">'+(k?'Gameweek '+k+' results':'Other results')+'</h2><span class="small">'+ms.length+(k&&ms.length<10?'/10':'')+' played</span></div><div class="gwt">'+tot+' pts</div>'+ms.map(m=>resRow(m,false)).join('')+'</div>';});
+  if(keys.length>2)h+='<div style="text-align:center;margin-bottom:12px"><button class="link" data-act="fold">'+(S.showOld?'Show fewer gameweeks':'Show older gameweeks ('+(keys.length-2)+')')+'</button></div>';
   return h;
+}
+// compact, read-only result row: crest · score · crest, then everyone's pick
+function resRow(m,live){
+  const L={H:'1',D:'X',A:'2'};
+  const picks=playerIds().map(id=>{const raw=fPick(id,m.id),p=fValid(id,m);let cls='pk',t='–';
+    if(raw&&!p){t=L[raw];cls+=' late';}else if(p){t=L[p];if(m.result)cls+=p===m.result?' good':' wrong';}
+    return '<span class="'+cls+'" title="'+(raw&&!p?'picked after kick-off — does not count':'')+'">'+esc(pname(id))+' '+t+(m.result&&p?(p===m.result?' ✓':' ✗'):'')+'</span>';}).join('');
+  const mid=m.result?'<div class="sc">'+esc(m.score||L[m.result])+'</div><div class="ko" style="white-space:nowrap">FT · '+esc(fmtKO(m.kickoff).split(', ')[0])+'</div>':'<div class="sc">vs</div><div class="ko">'+(live?'Started':'')+'</div>';
+  return '<div class="rrow"><div class="rteams"><div class="rt">'+crest(m.home,m.hLogo)+'<span>'+esc(m.home)+'</span></div><div class="rmid">'+mid+'</div><div class="rt r"><span>'+esc(m.away)+'</span>'+crest(m.away,m.aLogo)+'</div></div><div class="pks">'+picks+'</div></div>';
 }
 function vFTable(){
   const t=fTotals();let h='<div class="card"><h2>⚽ Premier League table</h2><table><tr><th>Player</th><th class="n">Correct</th><th class="n">Pts</th></tr>'+t.map((x,i)=>'<tr><td><span class="rank">'+(i+1)+'</span><b>'+esc(x.p)+'</b></td><td class="n" style="font-weight:400">'+x.ok+'/'+x.n+'</td><td class="n">'+x.pts+'</td></tr>').join('')+'</table></div>';
@@ -513,7 +547,7 @@ function vFAdmin(){
   if(up.length)h+='<div class="card"><h2>Upcoming</h2><table>'+up.map(m=>'<tr><td>'+esc(fmtKO(m.kickoff))+'</td><td>'+esc(m.home)+' v '+esc(m.away)+'</td><td style="text-align:right"><button class="link" style="color:var(--red)" data-act="fdel" data-m="'+m.id+'">Delete</button></td></tr>').join('')+'</table></div>';
   return h;
 }
-function fSavePick(mid,v){const m=S.fm.find(x=>x.id===mid);if(!m)return;const uid=fTarget();if(fStarted(m)&&!S.admin){toast('This match has started.');return;}
+function fSavePick(mid,v){const m=S.fm.find(x=>x.id===mid);if(!m)return;const uid=fTarget();if(fStarted(m)){toast('This match has kicked off — picks are locked.');return;}
   const cur=fPick(uid,mid);if(cur===v)return;
   S.fp[uid+'_'+mid]=Object.assign({},S.fp[uid+'_'+mid]||{},{pick:v});render();
   write(()=>setDoc(doc(db,'fpicks',uid+'_'+mid),{uid,match:mid,pick:v,updatedAt:new Date().toISOString()}),'Saved ✅');}
