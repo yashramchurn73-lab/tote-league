@@ -60,12 +60,26 @@ td.n{font-weight:700}
 .small{font-size:12px;color:var(--mute)}
 .login{max-width:380px;margin:30px auto}
 .login label{display:block;font-weight:600;font-size:14px;margin:10px 0 4px}
+#modes{display:flex;gap:6px;margin-top:8px}
+#modes button{background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.35);border-radius:999px;padding:5px 12px;font:600 13px system-ui,sans-serif;cursor:pointer}
+#modes button.on{background:#fff;color:var(--green)}
+.crest{display:inline-flex;align-items:center;justify-content:center;width:38px;height:42px;border-radius:8px 8px 19px 19px;border:2px solid;font:800 11px system-ui,sans-serif;letter-spacing:.3px;flex:none}
+.fx{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.fx:first-child{border-top:0}
+.tm{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center;font-size:13px;font-weight:600}
+.hda{display:flex;gap:4px}
+.hda button{width:44px;padding:8px 0;border:1px solid #cfc9bc;border-radius:8px;background:#fff;font:700 14px system-ui,sans-serif;cursor:pointer;color:var(--ink)}
+.hda button.on{background:var(--green);color:#fff;border-color:var(--green)}
+.hda button.ok{background:var(--green);color:#fff}
+.hda button.bad{background:var(--red);color:#fff;border-color:var(--red)}
+.hda button:disabled{cursor:default}
+.ko{font-size:12px;color:var(--mute);text-align:center;margin-top:4px}
 #toast{position:fixed;left:50%;bottom:calc(22px + env(safe-area-inset-bottom));transform:translateX(-50%);background:#1d2a22;color:#fff;padding:10px 16px;border-radius:10px;font-size:14px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:20;max-width:90vw;text-align:center}
 #toast.show{opacity:1}
 </style>
 </head>
 <body>
-<header><div class="t"><h1>🐎 Brothers' Tote League</h1><div id="sub"></div></div><div id="who"></div></header>
+<header><div class="t"><h1 id="title">🐎 Brothers' Tote League</h1><div id="sub"></div><div id="modes"></div></div><div id="who"></div></header>
 <nav id="nav"></nav>
 <main id="app"><div class="card">Loading…</div></main>
 <div id="toast"></div>
@@ -92,7 +106,7 @@ const db = getFirestore(app);
 const PTS={place:[0,10,7,5],group:{1:25,2:20,3:15},banker:20,outsider:25,odds:20,acc:20,loser:15};
 const S={tab:(location.hash||'#picks').slice(1),user:null,uid:null,username:null,admin:false,m:null,mLoaded:false,
   players:{},entries:{},hist:[],users:{},draft:null,draftFor:null,dirty:false,actAs:null,form:{},pend:false,
-  wasLocked:null,saving:false,loginMode:'in',err:null,unsubs:[]};
+  wasLocked:null,saving:false,loginMode:'in',err:null,unsubs:[],fm:[],fp:{},mode:(()=>{try{return localStorage.getItem('mode')||'horse'}catch(e){return'horse'}})(),showOld:false};
 const $=s=>document.querySelector(s);
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt=iso=>iso?new Date(iso).toLocaleString('en-GB',{timeZone:'Indian/Mauritius',weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'';
@@ -379,6 +393,70 @@ function vSettings(){
   return h;
 }
 
+
+/* ---------- football ---------- */
+const TEAMS={'Arsenal':['ARS','#EF0107','#fff'],'Aston Villa':['AVL','#670E36','#95BFE5'],'Bournemouth':['BOU','#DA291C','#111'],'Brentford':['BRE','#E30613','#fff'],'Brighton':['BHA','#0057B8','#fff'],'Burnley':['BUR','#6C1D45','#99D6EA'],'Chelsea':['CHE','#034694','#fff'],'Coventry':['COV','#59CBE8','#fff'],'Crystal Palace':['CRY','#1B458F','#C4122E'],'Everton':['EVE','#003399','#fff'],'Fulham':['FUL','#ffffff','#111'],'Hull':['HUL','#F5A12D','#111'],'Ipswich':['IPS','#3A64A3','#fff'],'Leeds':['LEE','#FFCD00','#1D428A'],'Liverpool':['LIV','#C8102E','#fff'],'Man City':['MCI','#6CABDD','#1C2C5B'],'Man Utd':['MUN','#DA291C','#FBE122'],'Newcastle':['NEW','#241F20','#fff'],"Nott'm Forest":['NFO','#DD0000','#fff'],'Sunderland':['SUN','#EB172B','#fff'],'Tottenham':['TOT','#132257','#fff'],'West Ham':['WHU','#7A263A','#1BB1E7'],'Wolves':['WOL','#FDB913','#231F20']};
+const ALIAS={'manchester city':'Man City','man city':'Man City','manchester united':'Man Utd','man united':'Man Utd','man utd':'Man Utd','afc bournemouth':'Bournemouth','brighton & hove albion':'Brighton','brighton and hove albion':'Brighton','coventry city':'Coventry','hull city':'Hull','ipswich town':'Ipswich','leeds united':'Leeds','newcastle united':'Newcastle','nottingham forest':"Nott'm Forest","nott'm forest":"Nott'm Forest",'tottenham hotspur':'Tottenham','spurs':'Tottenham','west ham united':'West Ham','wolverhampton wanderers':'Wolves','wolverhampton':'Wolves'};
+function canon(n){n=String(n||'').trim();const a=ALIAS[n.toLowerCase()];if(a)return a;const k=Object.keys(TEAMS).find(t=>t.toLowerCase()===n.toLowerCase());return k||n;}
+function crest(n){const t=TEAMS[n]||[n.replace(/[^A-Za-z]/g,'').slice(0,3).toUpperCase(),'#888','#fff'];return '<span class="crest" style="background:'+t[1]+';color:'+t[2]+';border-color:'+(t[1].toLowerCase()==='#ffffff'?'#111':t[2])+'">'+esc(t[0])+'</span>';}
+const fKick=m=>Date.parse(m.kickoff);
+const fStarted=m=>Date.now()>=fKick(m);
+const fmtKO=iso=>new Date(iso).toLocaleString('en-GB',{timeZone:'Indian/Mauritius',weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
+const dayKey=iso=>new Date(iso).toLocaleDateString('en-GB',{timeZone:'Indian/Mauritius',weekday:'long',day:'numeric',month:'long'});
+function fPick(uid,mid){const d=S.fp[uid+'_'+mid];return d?d.pick:null;}
+function fPts(uid,m){const p=fPick(uid,m.id);return m.result&&p?(p===m.result?3:0):null;}
+function fTotals(){const o={};playerIds().forEach(id=>{o[id]={id,p:pname(id),pts:0,ok:0,n:0};});
+  S.fm.forEach(m=>{if(!m.result)return;playerIds().forEach(id=>{const p=fPick(id,m.id);if(!p)return;o[id].n++;if(p===m.result){o[id].ok++;o[id].pts+=3;}});});
+  return Object.values(o).sort((a,b)=>b.pts-a.pts||b.ok-a.ok);}
+function fTarget(){return S.factAs||S.uid;}
+function vFMatches(){
+  if(!isPlayer()&&!S.admin)return vPicks();
+  let h='';
+  if(S.admin){const ids=playerIds();h+='<div class="card"><div class="row"><label>Picks for</label><select id="factAs">'+ids.map(id=>'<option value="'+id+'"'+(fTarget()===id?' selected':'')+'>'+esc(pname(id))+(id===S.uid?' (me)':'')+'</option>').join('')+'</select></div><p class="hint">As admin you can enter or fix picks for anyone, even after kick-off.</p></div>';}
+  const me=fTarget();
+  const list=S.fm.slice().sort((a,b)=>fKick(a)-fKick(b));
+  const live=list.filter(m=>!m.result);const done=list.filter(m=>m.result).reverse();
+  if(!list.length)return h+'<div class="card"><h2>No matches yet</h2><p class="hint">'+(S.admin?'Add this week\'s fixtures in Admin.':'Yash will add this week\'s Premier League matches soon.')+'</p></div>';
+  h+='<div class="card"><p class="hint" style="margin:0">Tap <b>1</b> home win, <b>X</b> draw, <b>2</b> away win. Correct pick = <b>3 pts</b>. Each match locks at kick-off. It saves as soon as you tap.</p></div>';
+  const card=(m)=>{const p=fPick(me,m.id),st=fStarted(m),lock=st&&!S.admin,pts=fPts(me,m);
+    const btn=(v,l)=>{let c=p===v?'on':'';if(m.result&&p===v)c=p===m.result?'ok':'bad';return '<button class="'+c+'" data-fpick="'+v+'" data-m="'+m.id+'"'+(lock?' disabled':'')+'>'+l+'</button>';};
+    let others='';if(st)others='<div class="ko">'+playerIds().filter(id=>id!==me).map(id=>{const q=fPick(id,m.id);return esc(pname(id))+': '+(q?({H:'1',D:'X',A:'2'})[q]:'–');}).join(' · ')+'</div>';
+    return '<div class="fx"><div class="tm">'+crest(m.home)+esc(m.home)+'</div><div><div class="hda">'+btn('H','1')+btn('D','X')+btn('A','2')+'</div><div class="ko">'+
+      (m.result?'<b>FT '+esc(m.score||({H:'Home win',D:'Draw',A:'Away win'})[m.result])+'</b>'+(pts!=null?' · <b class="'+(pts?'win':'lose')+'">'+pts+' pts</b>':''):st?'🔴 Started':esc(fmtKO(m.kickoff).split(', ').pop()))+'</div>'+others+'</div><div class="tm">'+crest(m.away)+esc(m.away)+'</div></div>';};
+  let lastDay='';let body='';
+  live.forEach(m=>{const d=dayKey(m.kickoff);if(d!==lastDay){if(body)h+='<div class="card"><h2>'+esc(lastDay)+'</h2>'+body+'</div>';body='';lastDay=d;}body+=card(m);});
+  if(body)h+='<div class="card"><h2>'+esc(lastDay)+'</h2>'+body+'</div>';
+  if(done.length){h+='<div class="card"><h2>Results</h2>'+(S.showOld?done:done.slice(0,10)).map(card).join('')+(done.length>10?'<button class="link" data-act="fold">'+(S.showOld?'Show fewer':'Show all '+done.length)+'</button>':'')+'</div>';}
+  return h;
+}
+function vFTable(){
+  const t=fTotals();let h='<div class="card"><h2>⚽ Premier League table</h2><table><tr><th>Player</th><th class="n">Correct</th><th class="n">Pts</th></tr>'+t.map((x,i)=>'<tr><td><span class="rank">'+(i+1)+'</span><b>'+esc(x.p)+'</b></td><td class="n" style="font-weight:400">'+x.ok+'/'+x.n+'</td><td class="n">'+x.pts+'</td></tr>').join('')+'</table></div>';
+  const rounds={};S.fm.filter(m=>m.result).forEach(m=>{const r=m.mw||'—';(rounds[r]=rounds[r]||[]).push(m);});
+  const keys=Object.keys(rounds).sort((a,b)=>(+b||0)-(+a||0));
+  if(keys.length)h+='<div class="card"><h2>By matchweek</h2><table><tr><th>MW</th>'+playerIds().map(id=>'<th class="n">'+esc(pname(id))+'</th>').join('')+'</tr>'+keys.map(k=>'<tr><td>'+esc(k)+'</td>'+playerIds().map(id=>'<td class="n">'+rounds[k].reduce((a,m)=>a+(fPts(id,m)||0),0)+'</td>').join('')+'</tr>').join('')+'</table></div>';
+  return h;
+}
+function parseFixtures(txt){const out=[];let mw=null;String(txt||'').split('\n').forEach(l=>{l=l.trim();if(!l)return;let x=l.match(/^(?:MW|matchweek|round)\s*(\d+)/i);if(x){mw=+x[1];return;}
+  x=l.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{2})\s+(.+?)\s+(?:v|vs|-)\s+(.+)$/i);if(x){out.push({mw,kickoff:new Date(x[1]+'T'+x[2].padStart(2,'0')+':'+x[3]+':00+04:00').toISOString(),home:canon(x[4]),away:canon(x[5])});}});return out;}
+function vFAdmin(){
+  let h='<div class="card"><h2>➕ Add matches</h2><p class="hint">One line per match, <b>Mauritius time</b>: <b>2026-11-21 19:00 Chelsea v Leeds</b>. A line <b>MW11</b> sets the matchweek. Send me the fixtures each week and I\'ll give you this text ready to paste.</p>'+
+    '<textarea data-fk="fx.txt" style="min-height:160px" placeholder="MW11&#10;2026-11-21 16:30 Man City v Fulham">'+esc(fv('fx.txt',''))+'</textarea><button class="btn sm" data-act="fadd">Add matches</button></div>';
+  const need=S.fm.filter(m=>fStarted(m)).sort((a,b)=>fKick(b)-fKick(a));
+  const up=S.fm.filter(m=>!fStarted(m)).sort((a,b)=>fKick(a)-fKick(b));
+  h+='<div class="card"><h2>🏁 Results</h2><p class="hint">Tap the result. Score is optional (e.g. 2-1). Points update straight away.</p>'+(need.length?need.slice(0,30).map(m=>{const k='fs.'+m.id;return '<div class="rr"><b>'+esc(m.home)+' v '+esc(m.away)+'</b> <span class="small">'+esc(fmtKO(m.kickoff))+'</span><div class="row"><div class="hda">'+['H','D','A'].map(v=>'<button class="'+(m.result===v?'on':'')+'" data-fres="'+v+'" data-m="'+m.id+'">'+({H:'1',D:'X',A:'2'})[v]+'</button>').join('')+'</div><input data-fk="'+k+'" placeholder="Score" style="width:90px" value="'+esc(fv(k,m.score||''))+'"></div></div>';}).join(''):'<p class="hint">No match has kicked off yet.</p>')+'</div>';
+  if(up.length)h+='<div class="card"><h2>Upcoming</h2><table>'+up.map(m=>'<tr><td>'+esc(fmtKO(m.kickoff))+'</td><td>'+esc(m.home)+' v '+esc(m.away)+'</td><td style="text-align:right"><button class="link" style="color:var(--red)" data-act="fdel" data-m="'+m.id+'">Delete</button></td></tr>').join('')+'</table></div>';
+  return h;
+}
+function fSavePick(mid,v){const m=S.fm.find(x=>x.id===mid);if(!m)return;const uid=fTarget();if(fStarted(m)&&!S.admin){toast('This match has started.');return;}
+  const cur=fPick(uid,mid);if(cur===v)return;
+  S.fp[uid+'_'+mid]=Object.assign({},S.fp[uid+'_'+mid]||{},{pick:v});render();
+  write(()=>setDoc(doc(db,'fpicks',uid+'_'+mid),{uid,match:mid,pick:v,updatedAt:new Date().toISOString()}),'Saved ✅');}
+function fAdd(){const list=parseFixtures(fv('fx.txt',''));if(!list.length){toast('No matches found — check the format.');return;}
+  delete S.form['fx.txt'];
+  write(async()=>{for(const m of list){const ref=doc(collection(db,'fmatches'));await setDoc(ref,Object.assign(m,{kickoffTs:Timestamp.fromDate(new Date(m.kickoff)),result:null,score:''}));}},list.length+' matches added ⚽');}
+function fRes(mid,v){const k='fs.'+mid;const m=S.fm.find(x=>x.id===mid);const score=String(fv(k,m&&m.score||'')).trim();delete S.form[k];write(()=>updateDoc(doc(db,'fmatches',mid),{result:v,score}),'Result saved ✅');}
+function fDel(mid){if(S.confirmDel!==mid){S.confirmDel=mid;toast('Tap Delete again to confirm');setTimeout(()=>{if(S.confirmDel===mid)S.confirmDel=null;},4000);return;}S.confirmDel=null;write(()=>deleteDoc(doc(db,'fmatches',mid)),'Match deleted');}
+
 /* ---------- actions ---------- */
 async function changePw(){
   const a=$('#pw0').value,b=$('#pw1').value,c=$('#pw2').value;S.pwErr=null;
@@ -470,7 +548,11 @@ document.addEventListener('submit',ev=>{if(ev.target.id==='loginForm'){ev.preven
 document.addEventListener('click',ev=>{
   const t=ev.target.closest('button');if(!t)return;
   if(t.dataset.tab){S.tab=t.dataset.tab;S.imgUrl=null;try{history.replaceState(null,'','#'+S.tab);}catch(e){}render();window.scrollTo(0,0);return;}
+  if(t.dataset.mode){S.mode=t.dataset.mode;try{localStorage.setItem('mode',S.mode);}catch(e){}S.tab=S.mode==='foot'?'fm':'picks';S.imgUrl=null;render();window.scrollTo(0,0);return;}
+  if(t.dataset.fpick){fSavePick(t.dataset.m,t.dataset.fpick);return;}
+  if(t.dataset.fres&&S.admin){fRes(t.dataset.m,t.dataset.fres);return;}
   const a=t.dataset.act;if(!a)return;
+  if(a==='fold'){S.showOld=!S.showOld;render();return;}
   if(a==='toggleLogin'){S.loginMode=S.loginMode==='up'?'in':'up';S.err=null;render();return;}
   if(a==='logout'){signOut(auth);return;}
   if(a==='save'){savePicks();return;}
@@ -488,6 +570,8 @@ document.addEventListener('click',ev=>{
   else if(a==='rmplayer')rmPlayer(t.dataset.u);
   else if(a==='reject')rejectUser(t.dataset.u);
   else if(a==='late')allowLate(t.dataset.u);
+  else if(a==='fadd')fAdd();
+  else if(a==='fdel')fDel(t.dataset.m);
   else if(a==='latecancel')cancelLate(t.dataset.u);
   else if(a==='unreject')unreject(t.dataset.u);
   else if(a==='savestart')saveStart(t.dataset.u);
@@ -495,6 +579,7 @@ document.addEventListener('click',ev=>{
 document.addEventListener('input',ev=>{const k=ev.target.dataset&&ev.target.dataset.fk;if(k)S.form[k]=ev.target.value;});
 document.addEventListener('change',ev=>{
   const t=ev.target;
+  if(t.id==='factAs'){S.factAs=t.value===S.uid?null:t.value;render();return;}
   if(t.id==='actAs'){S.actAs=(t.value&&t.value!==S.uid)?t.value:null;S.dirty=false;S.draftFor=null;syncDraft();render();return;}
   if(t.dataset.fk){S.form[t.dataset.fk]=t.value;return;}
   if(t.dataset.g&&S.admin){const n=+t.dataset.g;const races=S.m.races.map(r=>Object.assign({},r,{group:r.n===n?+t.value:(+r.group||0)}));write(()=>updateDoc(doc(db,'meeting','current'),{races}),'Race '+n+' updated ✅');return;}
@@ -515,23 +600,26 @@ function render(){
   S.pend=false;
   $('#who').innerHTML=S.user?'<div>'+esc(isPlayer()?pname(S.uid):S.username||'')+'</div><button data-act="logout">Sign out</button>':'';
   if(!S.user){
-    $('#nav').innerHTML='';$('#sub').innerHTML='';
+    $('#nav').innerHTML='';$('#sub').innerHTML='';$('#modes').innerHTML='';
     if(S.authReady){const lu=$('#lu')&&$('#lu').value;$('#app').innerHTML=vLogin();if(lu&&$('#lu'))$('#lu').value=lu;}
     return;
   }
-  const tabs=[['picks','Picks'],['all','All picks'],['board','Scores']];if(S.admin)tabs.push(['admin','Admin']);tabs.push(['settings','⚙️']);
-  if(!tabs.some(t=>t[0]===S.tab))S.tab='picks';
+  const foot=S.mode==='foot';
+  const tabs=foot?[['fm','Matches'],['ft','Table']]:[['picks','Picks'],['all','All picks'],['board','Scores']];if(S.admin)tabs.push([foot?'fa':'admin','Admin']);tabs.push(['settings','⚙️']);
+  $('#modes').innerHTML='<button data-mode="horse" class="'+(foot?'':'on')+'">🐎 Horses</button><button data-mode="foot" class="'+(foot?'on':'')+'">⚽ Premier League</button>';
+  $('#title').textContent=foot?'⚽ Brothers\' Prediction League':'🐎 Brothers\' Tote League';
+  if(!tabs.some(t=>t[0]===S.tab))S.tab=tabs[0][0];
   $('#nav').innerHTML=tabs.map(t=>'<button data-tab="'+t[0]+'" class="'+(S.tab===t[0]?'on':'')+'">'+t[1]+'</button>').join('');
-  $('#sub').innerHTML=S.m?esc(S.m.title||S.m.date)+' · <span id="cd">'+esc(cd())+'</span>':'';
+  $('#sub').innerHTML=foot?'Premier League · 1 / X / 2':(S.m?esc(S.m.title||S.m.date)+' · <span id="cd">'+esc(cd())+'</span>':'');
   let h='';
   if(S.err)h+='<div class="card warn">'+esc(S.err)+'</div>';
   if(!S.mLoaded)h+='<div class="card">Loading…</div>';
-  else h+=(S.tab==='settings'?vSettings():({picks:vPicks,all:vAll,board:vBoard,admin:vAdmin})[S.tab]());
+  else h+=(S.tab==='settings'?vSettings():({picks:vPicks,all:vAll,board:vBoard,admin:vAdmin,fm:vFMatches,ft:vFTable,fa:vFAdmin})[S.tab]());
   $('#app').innerHTML=h;
 }
 
 /* ---------- data ---------- */
-function stopAll(){S.unsubs.forEach(u=>{try{u();}catch(e){}});S.unsubs=[];}
+function stopAll(){S.unsubs.forEach(u=>{try{u();}catch(e){}});S.unsubs=[];if(fpUnsub){try{fpUnsub();}catch(e){}fpUnsub=null;}}
 function onErr(what){return e=>{console.error(what,e);S.err='Could not load '+what+' ('+(e.code||'error')+').';render();};}
 function startData(){
   stopAll();
@@ -539,15 +627,17 @@ function startData(){
   S.unsubs.push(onSnapshot(doc(db,'meeting','current'),s=>{
     S.m=s.exists()?Object.assign({outsiderMin:650,oddsMin:1000,loserMax:570,races:[],results:{}},s.data()):null;
     S.mLoaded=true;syncDraft();render();},e=>{S.mLoaded=true;onErr('the race day')(e);}));
+  S.unsubs.push(onSnapshot(collection(db,'fmatches'),q=>{S.fm=q.docs.map(d=>Object.assign({id:d.id},d.data()));render();},onErr('matches')));
   S.unsubs.push(onSnapshot(collection(db,'history'),q=>{S.hist=q.docs.map(d=>Object.assign({id:d.id},d.data()));S.histLoaded=true;render();},onErr('season')));
   if(S.admin)S.unsubs.push(onSnapshot(collection(db,'users'),q=>{const o={};q.forEach(d=>o[d.id]=d.data());S.users=o;render();},onErr('accounts')));
   else S.unsubs.push(onSnapshot(doc(db,'users',S.uid),s=>{if(s.exists()){S.username=s.data().username||S.username;S.myStatus=s.data().status||null;}render();},()=>{}));
   startEntries();
 }
-let entriesUnsub=null;
+let entriesUnsub=null,fpUnsub=null;
 function startEntries(){
   if(entriesUnsub){try{entriesUnsub();}catch(e){}entriesUnsub=null;}
   if(!S.admin&&!isPlayer())return;
+  if(!fpUnsub)fpUnsub=onSnapshot(collection(db,'fpicks'),q=>{const o={};q.forEach(d=>o[d.id]=d.data());S.fp=o;render();},onErr('football picks'));
   entriesUnsub=onSnapshot(collection(db,'entries'),q=>{const o={};q.forEach(d=>o[d.id]=d.data());S.entries=o;S.entriesLoaded=true;syncDraft();render();},onErr('picks'));
   S.unsubs.push(()=>{if(entriesUnsub)entriesUnsub();});
 }
