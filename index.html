@@ -63,6 +63,7 @@ td.n{font-weight:700}
 #modes{display:flex;gap:6px;margin-top:8px}
 #modes button{background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.35);border-radius:999px;padding:5px 12px;font:600 13px system-ui,sans-serif;cursor:pointer}
 #modes button.on{background:#fff;color:var(--green)}
+.logo{width:40px;height:40px;object-fit:contain;flex:none}
 .crest{display:inline-flex;align-items:center;justify-content:center;width:38px;height:42px;border-radius:8px 8px 19px 19px;border:2px solid;font:800 11px system-ui,sans-serif;letter-spacing:.3px;flex:none}
 .fx{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
 .fx:first-child{border-top:0}
@@ -396,46 +397,62 @@ function vSettings(){
 
 
 /* ---------- automatic fixtures & results (ESPN public scoreboard) ---------- */
-const ESPN='https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/scoreboard?dates=';
-function ymd(d){return d.toISOString().slice(0,10).replace(/-/g,'');}
+const ESPN='https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/scoreboard?limit=500&dates=';
 let syncing=false;
 async function fSync(force){
   if(syncing||!S.uid||!(S.admin||isPlayer()))return;
-  let last=0;try{last=+localStorage.getItem('fsync')||0;}catch(e){}
+  let last=0;try{last=+localStorage.getItem('fsync2')||0;}catch(e){}
   if(!force&&Date.now()-last<15*60e3)return;
-  syncing=true;try{localStorage.setItem('fsync',String(Date.now()));}catch(e){}
+  syncing=true;try{localStorage.setItem('fsync2',String(Date.now()));}catch(e){}
   let added=0,res=0;
   try{
-    const days=[];for(let i=-3;i<=7;i++){days.push(ymd(new Date(Date.now()+i*86400e3)));}
+    const now=new Date(),y=now.getUTCFullYear(),start=now.getUTCMonth()>=6?y:y-1;
     const evs=[];
-    for(const d of days){try{const r=await fetch(ESPN+d);if(!r.ok)continue;const j=await r.json();(j.events||[]).forEach(e=>evs.push(e));}catch(e){}}
-    const seen=new Set();
+    for(const yr of [start,start+1]){try{const r=await fetch(ESPN+yr);if(!r.ok)continue;const j=await r.json();(j.events||[]).forEach(e=>{if(e.season&&+e.season.year===start)evs.push(e);});}catch(e){}}
+    const seen=new Set(),list=[];
+    evs.sort((p,q)=>String(p.date).localeCompare(String(q.date)));
+    const cnt={};
     for(const e of evs){
       if(seen.has(e.id))continue;seen.add(e.id);
       const c=(e.competitions&&e.competitions[0]&&e.competitions[0].competitors)||[];
       const H=c.find(x=>x.homeAway==='home'),A=c.find(x=>x.homeAway==='away');if(!H||!A)continue;
+      const st=(e.status&&e.status.type)||{};
+      const postponed=/POSTPONED|CANCELED|CANCELLED/.test(st.name||'');
+      const hi=H.team.id,ai=A.team.id;const gw=Math.max(cnt[hi]||0,cnt[ai]||0)+1;cnt[hi]=(cnt[hi]||0)+1;cnt[ai]=(cnt[ai]||0)+1;
+      list.push({e,H,A,st,postponed,gw,done:!!st.completed&&/FULL_TIME|FINAL/.test(st.name||'')});
+    }
+    if(!list.length){syncing=false;return;}
+    // current gameweek = first one that still has a match to play
+    const open=list.filter(x=>!x.done&&!x.postponed);
+    const cur=open.length?Math.min(...open.map(x=>x.gw)):Math.max(...list.map(x=>x.gw));
+    for(const x of list){
+      const {e,H,A,gw,done,postponed}=x;
       const home=canon(H.team.displayName),away=canon(A.team.displayName);
       const kickoff=new Date(e.date).toISOString();
-      const st=(e.status&&e.status.type)||{};
-      const done=!!st.completed&&/FULL_TIME|FINAL/.test(st.name||'');
-      const postponed=/POSTPONED|CANCELED|CANCELLED/.test(st.name||'');
       let result=null,score='';
       if(done){const h=+H.score,a=+A.score;result=h>a?'H':h<a?'A':'D';score=h+'-'+a;}
       const id='espn_'+e.id;
-      let m=S.fm.find(x=>x.id===id)||S.fm.find(x=>x.home===home&&x.away===away&&Math.abs(fKick(x)-Date.parse(kickoff))<12*3600e3);
+      let m=S.fm.find(z=>z.id===id)||S.fm.find(z=>z.home===home&&z.away===away&&Math.abs(fKick(z)-Date.parse(kickoff))<12*3600e3);
       if(m&&m.id!==id&&!S.admin)continue; // a pasted match: only the admin's app updates it
-      const data={home,away,kickoff,kickoffTs:Timestamp.fromDate(new Date(kickoff)),espn:e.id,postponed};
-      if(!m){await setDoc(doc(db,'fmatches',id),Object.assign(data,{result,score,auto:true}));added++;continue;}
+      const hLogo=H.team.logo||'',aLogo=A.team.logo||'';
+      if(!m){
+        if(gw!==cur&&gw!==cur-1)continue; // only this gameweek (and last one's results)
+        await setDoc(doc(db,'fmatches',id),{home,away,kickoff,kickoffTs:Timestamp.fromDate(new Date(kickoff)),espn:e.id,postponed,gw,hLogo,aLogo,result,score,auto:true});added++;continue;}
       const upd={};
-      if(m.kickoff!==kickoff){upd.kickoff=kickoff;upd.kickoffTs=data.kickoffTs;}
+      if(m.kickoff!==kickoff){upd.kickoff=kickoff;upd.kickoffTs=Timestamp.fromDate(new Date(kickoff));}
       if(!!m.postponed!==postponed)upd.postponed=postponed;
+      if(m.gw!==gw)upd.gw=gw;
+      if(m.hLogo!==hLogo)upd.hLogo=hLogo;if(m.aLogo!==aLogo)upd.aLogo=aLogo;
       if(done&&!m.manual&&(m.result!==result||m.score!==score)){upd.result=result;upd.score=score;res++;}
       if(Object.keys(upd).length)await updateDoc(doc(db,'fmatches',m.id),upd);
     }
+    try{localStorage.setItem('fgw',String(cur));}catch(e){}
     if(added||res)toast('⚽ '+(added?added+' new match'+(added>1?'es':''):'')+(added&&res?' · ':'')+(res?res+' result'+(res>1?'s':'')+' updated':''));
   }catch(e){console.error('sync',e);}
-  syncing=false;
+  syncing=false;render();
 }
+// current gameweek from stored matches: first gameweek with a match still to play
+function curGw(){const g=S.fm.filter(m=>m.gw);if(!g.length)return null;const open=g.filter(m=>!m.result&&!m.postponed);return open.length?Math.min(...open.map(m=>m.gw)):Math.max(...g.map(m=>m.gw));}
 function weekKey(iso){const d=new Date(Date.parse(iso)+4*3600e3);const back=(d.getUTCDay()+5)%7;const t=new Date(d.getTime()-back*86400e3);return t.toISOString().slice(0,10);}
 function weekLabel(k){const d=new Date(k+'T12:00:00Z');return 'Week of '+d.toLocaleDateString('en-GB',{day:'numeric',month:'short',timeZone:'UTC'});}
 
@@ -443,7 +460,8 @@ function weekLabel(k){const d=new Date(k+'T12:00:00Z');return 'Week of '+d.toLoc
 const TEAMS={'Arsenal':['ARS','#EF0107','#fff'],'Aston Villa':['AVL','#670E36','#95BFE5'],'Bournemouth':['BOU','#DA291C','#111'],'Brentford':['BRE','#E30613','#fff'],'Brighton':['BHA','#0057B8','#fff'],'Burnley':['BUR','#6C1D45','#99D6EA'],'Chelsea':['CHE','#034694','#fff'],'Coventry':['COV','#59CBE8','#fff'],'Crystal Palace':['CRY','#1B458F','#C4122E'],'Everton':['EVE','#003399','#fff'],'Fulham':['FUL','#ffffff','#111'],'Hull':['HUL','#F5A12D','#111'],'Ipswich':['IPS','#3A64A3','#fff'],'Leeds':['LEE','#FFCD00','#1D428A'],'Liverpool':['LIV','#C8102E','#fff'],'Man City':['MCI','#6CABDD','#1C2C5B'],'Man Utd':['MUN','#DA291C','#FBE122'],'Newcastle':['NEW','#241F20','#fff'],"Nott'm Forest":['NFO','#DD0000','#fff'],'Sunderland':['SUN','#EB172B','#fff'],'Tottenham':['TOT','#132257','#fff'],'West Ham':['WHU','#7A263A','#1BB1E7'],'Wolves':['WOL','#FDB913','#231F20']};
 const ALIAS={'manchester city':'Man City','man city':'Man City','manchester united':'Man Utd','man united':'Man Utd','man utd':'Man Utd','afc bournemouth':'Bournemouth','brighton & hove albion':'Brighton','brighton and hove albion':'Brighton','coventry city':'Coventry','hull city':'Hull','ipswich town':'Ipswich','leeds united':'Leeds','newcastle united':'Newcastle','nottingham forest':"Nott'm Forest","nott'm forest":"Nott'm Forest",'tottenham hotspur':'Tottenham','spurs':'Tottenham','west ham united':'West Ham','wolverhampton wanderers':'Wolves','wolverhampton':'Wolves'};
 function canon(n){n=String(n||'').trim();const a=ALIAS[n.toLowerCase()];if(a)return a;const k=Object.keys(TEAMS).find(t=>t.toLowerCase()===n.toLowerCase());return k||n;}
-function crest(n){const t=TEAMS[n]||[n.replace(/[^A-Za-z]/g,'').slice(0,3).toUpperCase(),'#888','#fff'];return '<span class="crest" style="background:'+t[1]+';color:'+t[2]+';border-color:'+(t[1].toLowerCase()==='#ffffff'?'#111':t[2])+'">'+esc(t[0])+'</span>';}
+function crest(n,logo){const t=TEAMS[n]||[n.replace(/[^A-Za-z]/g,'').slice(0,3).toUpperCase(),'#888','#fff'];const sh='<span class="crest" style="background:'+t[1]+';color:'+t[2]+';border-color:'+(t[1].toLowerCase()==='#ffffff'?'#111':t[2])+(logo?';display:none':'')+'">'+esc(t[0])+'</span>';
+  return logo?'<img class="logo" src="'+esc(logo)+'" alt="" loading="lazy" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'inline-flex\'">'+sh:sh;}
 const fKick=m=>Date.parse(m.kickoff);
 const fStarted=m=>Date.now()>=fKick(m);
 const fmtKO=iso=>new Date(iso).toLocaleString('en-GB',{timeZone:'Indian/Mauritius',weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
@@ -459,15 +477,17 @@ function vFMatches(){
   let h='';
   if(S.admin){const ids=playerIds();h+='<div class="card"><div class="row"><label>Picks for</label><select id="factAs">'+ids.map(id=>'<option value="'+id+'"'+(fTarget()===id?' selected':'')+'>'+esc(pname(id))+(id===S.uid?' (me)':'')+'</option>').join('')+'</select></div><p class="hint">As admin you can enter or fix picks for anyone, even after kick-off.</p></div>';}
   const me=fTarget();
+  const gw=curGw();
   const list=S.fm.slice().sort((a,b)=>fKick(a)-fKick(b));
-  const live=list.filter(m=>!m.result);const done=list.filter(m=>m.result).reverse();
+  const live=list.filter(m=>!m.result&&(gw==null||!m.gw||m.gw===gw));const done=list.filter(m=>m.result).reverse();
   if(!list.length)return h+'<div class="card"><h2>No matches yet</h2><p class="hint">'+(S.admin?'Add this week\'s fixtures in Admin.':'Yash will add this week\'s Premier League matches soon.')+'</p></div>';
+  if(gw)h+='<div class="card" style="text-align:center"><h2 style="margin:0">⚽ Gameweek '+gw+'</h2><p class="hint" style="margin:4px 0 0">Next gameweek opens once this one is finished.</p></div>';
   h+='<div class="card"><p class="hint" style="margin:0">Tap <b>1</b> home win, <b>X</b> draw, <b>2</b> away win. Correct pick = <b>3 pts</b>. Each match locks at kick-off. It saves as soon as you tap.</p></div>';
   const card=(m)=>{const p=fPick(me,m.id),st=fStarted(m),lock=st&&!S.admin,pts=fPts(me,m);
     const btn=(v,l)=>{let c=p===v?'on':'';if(m.result&&p===v)c=p===m.result?'ok':'bad';return '<button class="'+c+'" data-fpick="'+v+'" data-m="'+m.id+'"'+(lock?' disabled':'')+'>'+l+'</button>';};
     let others='';if(st)others='<div class="ko">'+playerIds().filter(id=>id!==me).map(id=>{const q=fPick(id,m.id);return esc(pname(id))+': '+(q?({H:'1',D:'X',A:'2'})[q]:'–');}).join(' · ')+'</div>';
-    return '<div class="fx"><div class="tm">'+crest(m.home)+esc(m.home)+'</div><div><div class="hda">'+btn('H','1')+btn('D','X')+btn('A','2')+'</div><div class="ko">'+
-      (m.postponed&&!m.result?'<b>Postponed</b>':m.result?'<b>FT '+esc(m.score||({H:'Home win',D:'Draw',A:'Away win'})[m.result])+'</b>'+(pts!=null?' · <b class="'+(pts?'win':'lose')+'">'+pts+' pts</b>':''):st?'🔴 Started':esc(fmtKO(m.kickoff).split(', ').pop()))+'</div>'+others+'</div><div class="tm">'+crest(m.away)+esc(m.away)+'</div></div>';};
+    return '<div class="fx"><div class="tm">'+crest(m.home,m.hLogo)+esc(m.home)+'</div><div><div class="hda">'+btn('H','1')+btn('D','X')+btn('A','2')+'</div><div class="ko">'+
+      (m.postponed&&!m.result?'<b>Postponed</b>':m.result?'<b>FT '+esc(m.score||({H:'Home win',D:'Draw',A:'Away win'})[m.result])+'</b>'+(pts!=null?' · <b class="'+(pts?'win':'lose')+'">'+pts+' pts</b>':''):st?'🔴 Started':esc(fmtKO(m.kickoff).split(', ').pop()))+'</div>'+others+'</div><div class="tm">'+crest(m.away,m.aLogo)+esc(m.away)+'</div></div>';};
   let lastDay='';let body='';
   live.forEach(m=>{const d=dayKey(m.kickoff);if(d!==lastDay){if(body)h+='<div class="card"><h2>'+esc(lastDay)+'</h2>'+body+'</div>';body='';lastDay=d;}body+=card(m);});
   if(body)h+='<div class="card"><h2>'+esc(lastDay)+'</h2>'+body+'</div>';
@@ -476,19 +496,19 @@ function vFMatches(){
 }
 function vFTable(){
   const t=fTotals();let h='<div class="card"><h2>⚽ Premier League table</h2><table><tr><th>Player</th><th class="n">Correct</th><th class="n">Pts</th></tr>'+t.map((x,i)=>'<tr><td><span class="rank">'+(i+1)+'</span><b>'+esc(x.p)+'</b></td><td class="n" style="font-weight:400">'+x.ok+'/'+x.n+'</td><td class="n">'+x.pts+'</td></tr>').join('')+'</table></div>';
-  const rounds={};S.fm.filter(m=>m.result).forEach(m=>{const r=weekKey(m.kickoff);(rounds[r]=rounds[r]||[]).push(m);});
+  const rounds={};S.fm.filter(m=>m.result).forEach(m=>{const r=m.gw?'G'+String(m.gw).padStart(3,'0'):'W'+weekKey(m.kickoff);(rounds[r]=rounds[r]||[]).push(m);});
   const keys=Object.keys(rounds).sort().reverse();
-  if(keys.length)h+='<div class="card"><h2>By week</h2><table><tr><th>Week</th>'+playerIds().map(id=>'<th class="n">'+esc(pname(id))+'</th>').join('')+'</tr>'+keys.map(k=>'<tr><td>'+esc(weekLabel(k))+'</td>'+playerIds().map(id=>'<td class="n">'+rounds[k].reduce((a,m)=>a+(fPts(id,m)||0),0)+'</td>').join('')+'</tr>').join('')+'</table></div>';
+  if(keys.length)h+='<div class="card"><h2>By gameweek</h2><table><tr><th>Gameweek</th>'+playerIds().map(id=>'<th class="n">'+esc(pname(id))+'</th>').join('')+'</tr>'+keys.map(k=>'<tr><td>'+esc(k[0]==='G'?'Gameweek '+(+k.slice(1)):weekLabel(k.slice(1)))+'</td>'+playerIds().map(id=>'<td class="n">'+rounds[k].reduce((a,m)=>a+(fPts(id,m)||0),0)+'</td>').join('')+'</tr>').join('')+'</table></div>';
   return h;
 }
 function parseFixtures(txt){const out=[];let mw=null;String(txt||'').split('\n').forEach(l=>{l=l.trim();if(!l)return;let x=l.match(/^(?:MW|matchweek|round)\s*(\d+)/i);if(x){mw=+x[1];return;}
   x=l.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{1,2}):(\d{2})\s+(.+?)\s+(?:v|vs|-)\s+(.+)$/i);if(x){out.push({mw,kickoff:new Date(x[1]+'T'+x[2].padStart(2,'0')+':'+x[3]+':00+04:00').toISOString(),home:canon(x[4]),away:canon(x[5])});}});return out;}
 function vFAdmin(){
-  let h='<div class="card"><h2>🔄 Automatic</h2><p class="hint">Fixtures for the next 7 days and results are fetched automatically whenever someone opens the app (every 15 min at most). Tap below to fetch now.</p><button class="btn sm" data-act="fsync">Fetch fixtures & results now</button></div>';
+  let h='<div class="card"><h2>🔄 Automatic</h2><p class="hint">Each Premier League gameweek and its results are fetched automatically whenever someone opens the app (every 15 min at most). Tap below to fetch now.</p><button class="btn sm" data-act="fsync">Fetch fixtures & results now</button></div>';
   h+='<div class="card"><h2>➕ Add matches by hand</h2><p class="hint">Only needed if a match is missing. One line per match, <b>Mauritius time</b>: <b>2026-11-21 19:00 Chelsea v Leeds</b>.</p>'+
     '<textarea data-fk="fx.txt" style="min-height:160px" placeholder="MW11&#10;2026-11-21 16:30 Man City v Fulham">'+esc(fv('fx.txt',''))+'</textarea><button class="btn sm" data-act="fadd">Add matches</button></div>';
   const need=S.fm.filter(m=>fStarted(m)).sort((a,b)=>fKick(b)-fKick(a));
-  const up=S.fm.filter(m=>!fStarted(m)).sort((a,b)=>fKick(a)-fKick(b));
+  const cg=curGw();const up=S.fm.filter(m=>!fStarted(m)&&(cg==null||!m.gw||m.gw<=cg)).sort((a,b)=>fKick(a)-fKick(b));
   h+='<div class="card"><h2>🏁 Results</h2><p class="hint">Results fill in automatically after full time. Tap here only to correct one — your choice then stays fixed.</p>'+(need.length?need.slice(0,30).map(m=>{const k='fs.'+m.id;return '<div class="rr"><b>'+esc(m.home)+' v '+esc(m.away)+'</b> <span class="small">'+esc(fmtKO(m.kickoff))+'</span><div class="row"><div class="hda">'+['H','D','A'].map(v=>'<button class="'+(m.result===v?'on':'')+'" data-fres="'+v+'" data-m="'+m.id+'">'+({H:'1',D:'X',A:'2'})[v]+'</button>').join('')+'</div><input data-fk="'+k+'" placeholder="Score" style="width:90px" value="'+esc(fv(k,m.score||''))+'"></div></div>';}).join(''):'<p class="hint">No match has kicked off yet.</p>')+'</div>';
   if(up.length)h+='<div class="card"><h2>Upcoming</h2><table>'+up.map(m=>'<tr><td>'+esc(fmtKO(m.kickoff))+'</td><td>'+esc(m.home)+' v '+esc(m.away)+'</td><td style="text-align:right"><button class="link" style="color:var(--red)" data-act="fdel" data-m="'+m.id+'">Delete</button></td></tr>').join('')+'</table></div>';
   return h;
