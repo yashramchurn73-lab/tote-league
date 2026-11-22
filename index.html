@@ -74,6 +74,20 @@ td.n{font-weight:700}
 .hda button.ok{background:var(--green);color:#fff}
 .hda button.bad{background:var(--red);color:#fff;border-color:var(--red)}
 .hda button:disabled{cursor:default}
+.cbar{display:flex;justify-content:space-between;align-items:center;width:100%;margin:-2px 0 8px;padding:8px 10px;border:1px dashed #cfc9bc;border-radius:10px;background:#faf8f3;font:600 13px system-ui,sans-serif;color:var(--ink);cursor:pointer}
+.cbar.has{border-style:solid;border-color:var(--green);background:#eef6f0}
+.cpanel{background:#faf8f3;border-radius:10px;padding:10px;margin:-4px 0 10px}
+.mk{margin:8px 0}.mkh{font-size:12.5px;font-weight:700;margin-bottom:4px}
+.mko{display:flex;flex-wrap:wrap;gap:5px}
+.mko button{padding:7px 10px;border:1px solid #cfc9bc;border-radius:18px;background:#fff;font:600 12.5px system-ui,sans-serif;color:var(--ink);cursor:pointer}
+.mko button.on{background:var(--green);border-color:var(--green);color:#fff}
+.calc{margin-top:8px;padding-top:8px;border-top:1px solid var(--line);font-size:13px}
+.calcbar{position:sticky;bottom:8px;z-index:5;display:flex;justify-content:space-between;align-items:center;gap:10px;background:#1f5a32;color:#fff;border-radius:14px;padding:10px 14px;margin:0 0 12px;box-shadow:0 4px 14px rgba(0,0,0,.18)}
+.calcbar .small{color:#cfe3d5}.cb2{font-size:13.5px}.cbt{font:800 26px system-ui,sans-serif}.cbt span{font-size:13px;font-weight:600}
+.cmb{display:flex;flex-wrap:wrap;gap:4px;align-items:center;justify-content:center;margin-top:5px;font-size:11.5px}
+.cmn{font-weight:700}
+.lg{padding:2px 7px;border-radius:10px;background:#efebe2}
+.lg.good{background:#dcefe0;color:#1d6b35}.lg.wrong{background:#f6dede;color:#a32626}
 .gwh{display:flex;justify-content:space-between;align-items:baseline}
 .gwt{font-size:13px;color:var(--mute);margin:4px 0 6px}
 .rrow{border-top:1px solid var(--line);padding:8px 0}
@@ -446,19 +460,21 @@ async function fSync(force){
       const kickoff=new Date(e.date).toISOString();
       let result=null,score='';
       if(done){const h=+H.score,a=+A.score;result=h>a?'H':h<a?'A':'D';score=h+'-'+a;}
+      const goals=done?espnGoals(e,H):null;
       const id='espn_'+e.id;
       let m=S.fm.find(z=>z.id===id)||S.fm.find(z=>z.home===home&&z.away===away&&Math.abs(fKick(z)-Date.parse(kickoff))<12*3600e3);
       if(m&&m.id!==id&&!S.admin)continue; // a pasted match: only the admin's app updates it
       const hLogo=H.team.logo||'',aLogo=A.team.logo||'';
       if(!m){
         if(gw!==cur&&gw!==cur-1)continue; // only this gameweek (and last one's results)
-        await setDoc(doc(db,'fmatches',id),{home,away,kickoff,kickoffTs:Timestamp.fromDate(new Date(kickoff)),espn:e.id,postponed,gw,hLogo,aLogo,result,score,auto:true});added++;continue;}
+        await setDoc(doc(db,'fmatches',id),{home,away,kickoff,kickoffTs:Timestamp.fromDate(new Date(kickoff)),espn:e.id,postponed,gw,hLogo,aLogo,result,score,goals,auto:true});added++;continue;}
       const upd={};
       if(m.kickoff!==kickoff){upd.kickoff=kickoff;upd.kickoffTs=Timestamp.fromDate(new Date(kickoff));}
       if(!!m.postponed!==postponed)upd.postponed=postponed;
       if(m.gw!==gw)upd.gw=gw;
       if(m.hLogo!==hLogo)upd.hLogo=hLogo;if(m.aLogo!==aLogo)upd.aLogo=aLogo;
       if(done&&!m.manual&&(m.result!==result||m.score!==score)){upd.result=result;upd.score=score;res++;}
+      if(done&&goals&&JSON.stringify(m.goals||null)!==JSON.stringify(goals))upd.goals=goals;
       if(Object.keys(upd).length)await updateDoc(doc(db,'fmatches',m.id),upd);
     }
     try{localStorage.setItem('fgw',String(cur));}catch(e){}
@@ -466,6 +482,9 @@ async function fSync(force){
   }catch(e){console.error('sync',e);}
   syncing=false;render();
 }
+// goal timeline from ESPN: [{t:'H'|'A', h:1|2}] in order (own goals count for the team credited)
+function espnGoals(e,H){try{const d=(e.competitions[0].details||[]).filter(x=>x.scoringPlay);
+  return d.map(x=>{const mn=parseInt(String(x.clock&&x.clock.displayValue||'0'),10)||0;return {t:x.team&&x.team.id===H.team.id?'H':'A',h:mn<=45?1:2};});}catch(err){return null;}}
 // current gameweek from stored matches: first gameweek with a match still to play
 function curGw(){const g=S.fm.filter(m=>m.gw);if(!g.length)return null;const open=g.filter(m=>!m.result&&!m.postponed);return open.length?Math.min(...open.map(m=>m.gw)):Math.max(...g.map(m=>m.gw));}
 function weekKey(iso){const d=new Date(Date.parse(iso)+4*3600e3);const back=(d.getUTCDay()+5)%7;const t=new Date(d.getTime()-back*86400e3);return t.toISOString().slice(0,10);}
@@ -482,12 +501,44 @@ const fStarted=m=>Date.now()>=fKick(m);
 const fmtKO=iso=>new Date(iso).toLocaleString('en-GB',{timeZone:'Indian/Mauritius',weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
 const dayKey=iso=>new Date(iso).toLocaleDateString('en-GB',{timeZone:'Indian/Mauritius',weekday:'long',day:'numeric',month:'long'});
 function fPick(uid,mid){const d=S.fp[uid+'_'+mid];return d?d.pick:null;}
+/* ---------- combo (bet builder) per match ---------- */
+const MK=[
+ {k:'ou',n:'Over / Under 2.5 goals',p:2,o:m=>[['O','Over 2.5'],['U','Under 2.5']]},
+ {k:'btts',n:'Both teams to score',p:2,o:m=>[['Y','Yes'],['N','No']]},
+ {k:'tg',n:'Goal market — exact total goals',p:5,o:m=>[['0','0'],['1','1'],['2','2'],['3','3'],['4','4'],['5','5+']]},
+ {k:'oe',n:'Odd or even total goals',p:2,o:m=>[['O','Odd'],['E','Even (0 = even)']]},
+ {k:'fg',n:'First team to score',p:3,o:m=>[['H',m.home],['A',m.away],['N','No goal']]},
+ {k:'hh',n:'Highest scoring half',p:3,o:m=>[['1','1st half'],['2','2nd half'],['E','Equal']]},
+ {k:'lg',n:'Last team to score',p:3,o:m=>[['H',m.home],['A',m.away],['N','No goal']]}];
+const MKS={ou:'',btts:'BTTS',tg:'Goals',oe:'',fg:'1st goal',hh:'Most goals',lg:'Last goal'};
+// what each market settles to, given the goal timeline
+function mkOutcome(goals){const n=goals.length,hc=goals.filter(g=>g.t==='H').length,ac=n-hc,h1=goals.filter(g=>g.h===1).length,h2=n-h1;
+  return {ou:n>2?'O':'U',btts:hc&&ac?'Y':'N',tg:String(Math.min(n,5)),oe:n%2?'O':'E',fg:n?goals[0].t:'N',hh:h1>h2?'1':h2>h1?'2':'E',lg:n?goals[n-1].t:'N'};}
+// every possible match story up to 6 goals — used to spot impossible combos
+const MK_ALL=(()=>{const out=new Map();const g=[];const rec=d=>{const o=mkOutcome(g);out.set(JSON.stringify(o),o);if(d===6)return;for(const t of['H','A'])for(const h of[1,2]){g.push({t,h});rec(d+1);g.pop();}};rec(0);return [...out.values()];})();
+function comboOf(uid,mid){const d=S.fp[uid+'_'+mid];return (d&&d.combo)||{};}
+function comboLegs(c){return MK.filter(x=>c[x.k]!=null&&c[x.k]!=='');}
+function comboMax(c){return comboLegs(c).reduce((a,x)=>a+x.p,0);}
+function comboPossible(c){const L=comboLegs(c);return MK_ALL.some(o=>L.every(x=>o[x.k]===c[x.k]));}
+// goals data is trustworthy only if it adds up to the final score
+function goalsOk(m){if(!m.goals||!m.score)return false;const s=String(m.score).match(/(\d+)\s*-\s*(\d+)/);if(!s)return false;const hc=m.goals.filter(g=>g.t==='H').length;return hc===+s[1]&&m.goals.length-hc===+s[2];}
+// returns {pts, legs:[{k,v,ok}]} or null if nothing to settle / not settled yet
+function comboRes(uid,m){const d=S.fp[uid+'_'+m.id];if(!d||!d.combo)return null;const L=comboLegs(d.combo);if(!L.length)return null;
+  if(d.updatedAt&&Date.parse(d.updatedAt)>=fKick(m))return {late:true,legs:L.map(x=>({k:x.k,v:d.combo[x.k],ok:null})),pts:0,max:comboMax(d.combo)};
+  if(!m.result||!goalsOk(m))return {pending:true,legs:L.map(x=>({k:x.k,v:d.combo[x.k],ok:null})),pts:null,max:comboMax(d.combo)};
+  const o=mkOutcome(m.goals);const legs=L.map(x=>({k:x.k,v:d.combo[x.k],ok:o[x.k]===d.combo[x.k]}));const all=legs.every(l=>l.ok);
+  return {legs,pts:all?comboMax(d.combo):0,max:comboMax(d.combo),won:all};}
+function cPts(uid,m){const r=comboRes(uid,m);return r&&!r.pending&&!r.late?r.pts:0;}
+function legLabel(m,k,v){const mk=MK.find(x=>x.k===k);const o=mk.o(m).find(x=>x[0]===v);return (MKS[k]?MKS[k]+' ':'')+(o?o[1]:v);}
 // a pick only counts if it was saved before kick-off
 function fValid(uid,m){const d=S.fp[uid+'_'+m.id];if(!d||!d.pick)return null;if(d.updatedAt&&Date.parse(d.updatedAt)>=fKick(m))return null;return d.pick;}
 function fPts(uid,m){const p=fValid(uid,m);return m.result&&p?(p===m.result?3:0):null;}
-function fTotals(){const o={};playerIds().forEach(id=>{o[id]={id,p:pname(id),pts:0,ok:0,n:0};});
-  S.fm.forEach(m=>{if(!m.result)return;playerIds().forEach(id=>{const p=fValid(id,m);if(!p)return;o[id].n++;if(p===m.result){o[id].ok++;o[id].pts+=3;}});});
-  return Object.values(o).sort((a,b)=>b.pts-a.pts||b.ok-a.ok);}
+function fTotals(){const o={};playerIds().forEach(id=>{o[id]={id,p:pname(id),pts:0,ok:0,n:0,cp:0,cw:0,cn:0};});
+  S.fm.forEach(m=>{if(!m.result)return;playerIds().forEach(id=>{const p=fValid(id,m);if(p){o[id].n++;if(p===m.result){o[id].ok++;o[id].pts+=3;}}
+    const r=comboRes(id,m);if(r&&!r.pending){o[id].cn++;if(r.won){o[id].cw++;o[id].cp+=r.pts;}}});});
+  Object.values(o).forEach(x=>x.tot=x.pts+x.cp);
+  return Object.values(o).sort((a,b)=>b.tot-a.tot||b.ok-a.ok);}
+function gwPts(id,m){return (fPts(id,m)||0)+cPts(id,m);}
 function fTarget(){return S.factAs||S.uid;}
 function vFMatches(){
   if(!isPlayer()&&!S.admin)return vPicks();
@@ -500,13 +551,21 @@ function vFMatches(){
   if(gw)h+='<div class="card" style="text-align:center"><h2 style="margin:0">⚽ Gameweek '+gw+'</h2><p class="hint" style="margin:4px 0 0">'+(open.length?open.length+' match'+(open.length>1?'es':'')+' still open to pick':'All picks locked for this gameweek')+'</p></div>';
   if(open.length){
     if(S.admin){const ids=playerIds();h+='<div class="card"><div class="row"><label>Picks for</label><select id="factAs">'+ids.map(id=>'<option value="'+id+'"'+(fTarget()===id?' selected':'')+'>'+esc(pname(id))+(id===S.uid?' (me)':'')+'</option>').join('')+'</select></div><p class="hint">You can enter a pick for a brother — only before kick-off.</p></div>';}
-    h+='<div class="card"><p class="hint" style="margin:0">Tap <b>1</b> home win, <b>X</b> draw, <b>2</b> away win. Correct pick = <b>3 pts</b>. Each match locks at kick-off — picks made after kick-off never count.</p></div>';
+    h+='<div class="card"><p class="hint" style="margin:0">Tap <b>1</b> home win, <b>X</b> draw, <b>2</b> away win — correct = <b>3 pts</b>. Open <b>🎯 Combo</b> under a match for bonus picks: all must come true to score. Everything locks at kick-off.</p></div>';
     const me=fTarget();
     const card=m=>{const p=fPick(me,m.id);const btn=(v,l)=>'<button class="'+(p===v?'on':'')+'" data-fpick="'+v+'" data-m="'+m.id+'">'+l+'</button>';
-      return '<div class="fx"><div class="tm">'+crest(m.home,m.hLogo)+esc(m.home)+'</div><div><div class="hda">'+btn('H','1')+btn('D','X')+btn('A','2')+'</div><div class="ko">'+esc(fmtKO(m.kickoff).split(', ').pop())+'</div></div><div class="tm">'+crest(m.away,m.aLogo)+esc(m.away)+'</div></div>';};
+      const c=comboOf(me,m.id),L=comboLegs(c),mx=comboMax(c),okc=comboPossible(c),openP=S.cOpen===m.id;
+      let cb='<button class="cbar'+(L.length?' has':'')+'" data-act="ctog" data-m="'+m.id+'"><span>🎯 Combo'+(L.length?' · '+L.length+' pick'+(L.length>1?'s':''):'')+'</span><span>'+(L.length?(okc?'<b>'+mx+' pts</b> if all correct':'<b class="lose">⚠ impossible</b>'):'Add combo')+' '+(openP?'▲':'▼')+'</span></button>';
+      if(openP){cb+='<div class="cpanel"><p class="hint" style="margin:0 0 6px">Pick as many as you like. <b>All must come true</b> or the combo scores 0. Tap again to remove.</p>'+
+        MK.map(x=>'<div class="mk"><div class="mkh">'+esc(x.n)+' <span class="small">+'+x.p+'</span></div><div class="mko">'+x.o(m).map(([v,l])=>'<button class="'+(c[x.k]===v?'on':'')+'" data-cmk="'+x.k+'" data-v="'+v+'" data-m="'+m.id+'">'+esc(l)+'</button>').join('')+'</div></div>').join('')+
+        '<div class="calc">'+(L.length?(okc?L.length+' pick'+(L.length>1?'s':'')+' · <b>'+mx+' pts</b> if all correct · 0 if any is wrong':'⚠ These picks can\'t all happen in the same match — change one.'):'No combo picks yet.')+(L.length?' <button class="link" data-act="cclr" data-m="'+m.id+'">Clear</button>':'')+'</div></div>';}
+      return '<div class="fx"><div class="tm">'+crest(m.home,m.hLogo)+esc(m.home)+'</div><div><div class="hda">'+btn('H','1')+btn('D','X')+btn('A','2')+'</div><div class="ko">'+esc(fmtKO(m.kickoff).split(', ').pop())+'</div></div><div class="tm">'+crest(m.away,m.aLogo)+esc(m.away)+'</div></div>'+cb;};
     let lastDay='',body='';
     open.forEach(m=>{const d=dayKey(m.kickoff);if(d!==lastDay){if(body)h+='<div class="card"><h2>'+esc(lastDay)+'</h2>'+body+'</div>';body='';lastDay=d;}body+=card(m);});
     if(body)h+='<div class="card"><h2>'+esc(lastDay)+'</h2>'+body+'</div>';
+    // running calculator for this gameweek's open matches
+    const p1=open.filter(m=>fPick(me,m.id)).length*3,pc=open.reduce((a,m)=>{const c=comboOf(me,m.id);return a+(comboLegs(c).length&&comboPossible(c)?comboMax(c):0);},0),nc=open.filter(m=>comboLegs(comboOf(me,m.id)).length).length;
+    h+='<div class="calcbar"><div><div class="small">'+(me!==S.uid?esc(pname(me))+' · ':'')+'Max you can still score</div><div class="cb2">1X2 <b>'+p1+'</b> + Combos <b>'+pc+'</b>'+(nc?' <span class="small">('+nc+')</span>':'')+'</div></div><div class="cbt">'+(p1+pc)+'<span> pts</span></div></div>';
   }
   if(live.length)h+='<div class="card"><h2>🔴 Playing now / awaiting result</h2>'+live.map(m=>resRow(m,true)).join('')+'</div>';
   // results grouped by gameweek, newest first
@@ -514,7 +573,7 @@ function vFMatches(){
   const keys=Object.keys(groups).map(Number).sort((a,b)=>b-a);
   const shown=S.showOld?keys:keys.slice(0,2);
   shown.forEach(k=>{const ms=groups[k];
-    const tot=playerIds().map(id=>esc(pname(id))+' <b>'+ms.reduce((a,m)=>a+(fPts(id,m)||0),0)+'</b>').join(' · ');
+    const tot=playerIds().map(id=>esc(pname(id))+' <b>'+ms.reduce((a,m)=>a+gwPts(id,m),0)+'</b>').join(' · ');
     h+='<div class="card"><div class="gwh"><h2 style="margin:0">'+(k?'Gameweek '+k+' results':'Other results')+'</h2><span class="small">'+ms.length+(k&&ms.length<10?'/10':'')+' played</span></div><div class="gwt">'+tot+' pts</div>'+ms.map(m=>resRow(m,false)).join('')+'</div>';});
   if(keys.length>2)h+='<div style="text-align:center;margin-bottom:12px"><button class="link" data-act="fold">'+(S.showOld?'Show fewer gameweeks':'Show older gameweeks ('+(keys.length-2)+')')+'</button></div>';
   return h;
@@ -526,13 +585,17 @@ function resRow(m,live){
     if(raw&&!p){t=L[raw];cls+=' late';}else if(p){t=L[p];if(m.result)cls+=p===m.result?' good':' wrong';}
     return '<span class="'+cls+'" title="'+(raw&&!p?'picked after kick-off — does not count':'')+'">'+esc(pname(id))+' '+t+(m.result&&p?(p===m.result?' ✓':' ✗'):'')+'</span>';}).join('');
   const mid=m.result?'<div class="sc">'+esc(m.score||L[m.result])+'</div><div class="ko" style="white-space:nowrap">FT · '+esc(fmtKO(m.kickoff).split(', ')[0])+'</div>':'<div class="sc">vs</div><div class="ko">'+(live?'Started':'')+'</div>';
-  return '<div class="rrow"><div class="rteams"><div class="rt">'+crest(m.home,m.hLogo)+'<span>'+esc(m.home)+'</span></div><div class="rmid">'+mid+'</div><div class="rt r"><span>'+esc(m.away)+'</span>'+crest(m.away,m.aLogo)+'</div></div><div class="pks">'+picks+'</div></div>';
+  const combos=playerIds().map(id=>{const r=comboRes(id,m);if(!r)return '';
+    const legs=r.legs.map(l=>'<span class="lg'+(l.ok===true?' good':l.ok===false?' wrong':'')+'">'+esc(legLabel(m,l.k,l.v))+(l.ok===true?' ✓':l.ok===false?' ✗':'')+'</span>').join('');
+    const res=r.late?'<b class="small">late — no pts</b>':r.pending?'<span class="small">'+r.max+' pts if all correct'+(m.result?' · awaiting goal data':'')+'</span>':(r.won?'<b class="win">+'+r.pts+'</b>':'<b class="lose">0</b>');
+    return '<div class="cmb"><span class="cmn">🎯 '+esc(pname(id))+'</span>'+legs+res+'</div>';}).join('');
+  return '<div class="rrow"><div class="rteams"><div class="rt">'+crest(m.home,m.hLogo)+'<span>'+esc(m.home)+'</span></div><div class="rmid">'+mid+'</div><div class="rt r"><span>'+esc(m.away)+'</span>'+crest(m.away,m.aLogo)+'</div></div><div class="pks">'+picks+'</div>'+combos+'</div>';
 }
 function vFTable(){
-  const t=fTotals();let h='<div class="card"><h2>⚽ Premier League table</h2><table><tr><th>Player</th><th class="n">Correct</th><th class="n">Pts</th></tr>'+t.map((x,i)=>'<tr><td><span class="rank">'+(i+1)+'</span><b>'+esc(x.p)+'</b></td><td class="n" style="font-weight:400">'+x.ok+'/'+x.n+'</td><td class="n">'+x.pts+'</td></tr>').join('')+'</table></div>';
+  const t=fTotals();let h='<div class="card"><h2>⚽ Premier League table</h2><table><tr><th>Player</th><th class="n">1X2</th><th class="n">Combos</th><th class="n">Pts</th></tr>'+t.map((x,i)=>'<tr><td><span class="rank">'+(i+1)+'</span><b>'+esc(x.p)+'</b></td><td class="n" style="font-weight:400">'+x.pts+' <span class="small">('+x.ok+'/'+x.n+')</span></td><td class="n" style="font-weight:400">'+x.cp+' <span class="small">('+x.cw+'/'+x.cn+')</span></td><td class="n">'+x.tot+'</td></tr>').join('')+'</table><p class="hint" style="margin:6px 0 0">Brackets: correct / played. Combos only score when every pick in them comes true.</p></div>';
   const rounds={};S.fm.filter(m=>m.result).forEach(m=>{const r=m.gw?'G'+String(m.gw).padStart(3,'0'):'W'+weekKey(m.kickoff);(rounds[r]=rounds[r]||[]).push(m);});
   const keys=Object.keys(rounds).sort().reverse();
-  if(keys.length)h+='<div class="card"><h2>By gameweek</h2><table><tr><th>Gameweek</th>'+playerIds().map(id=>'<th class="n">'+esc(pname(id))+'</th>').join('')+'</tr>'+keys.map(k=>'<tr><td>'+esc(k[0]==='G'?'Gameweek '+(+k.slice(1)):weekLabel(k.slice(1)))+'</td>'+playerIds().map(id=>'<td class="n">'+rounds[k].reduce((a,m)=>a+(fPts(id,m)||0),0)+'</td>').join('')+'</tr>').join('')+'</table></div>';
+  if(keys.length)h+='<div class="card"><h2>By gameweek</h2><table><tr><th>Gameweek</th>'+playerIds().map(id=>'<th class="n">'+esc(pname(id))+'</th>').join('')+'</tr>'+keys.map(k=>'<tr><td>'+esc(k[0]==='G'?'Gameweek '+(+k.slice(1)):weekLabel(k.slice(1)))+'</td>'+playerIds().map(id=>'<td class="n">'+rounds[k].reduce((a,m)=>a+gwPts(id,m),0)+'</td>').join('')+'</tr>').join('')+'</table></div>';
   return h;
 }
 function parseFixtures(txt){const out=[];let mw=null;String(txt||'').split('\n').forEach(l=>{l=l.trim();if(!l)return;let x=l.match(/^(?:MW|matchweek|round)\s*(\d+)/i);if(x){mw=+x[1];return;}
@@ -550,7 +613,12 @@ function vFAdmin(){
 function fSavePick(mid,v){const m=S.fm.find(x=>x.id===mid);if(!m)return;const uid=fTarget();if(fStarted(m)){toast('This match has kicked off — picks are locked.');return;}
   const cur=fPick(uid,mid);if(cur===v)return;
   S.fp[uid+'_'+mid]=Object.assign({},S.fp[uid+'_'+mid]||{},{pick:v});render();
-  write(()=>setDoc(doc(db,'fpicks',uid+'_'+mid),{uid,match:mid,pick:v,updatedAt:new Date().toISOString()}),'Saved ✅');}
+  write(()=>setDoc(doc(db,'fpicks',uid+'_'+mid),{uid,match:mid,pick:v,updatedAt:new Date().toISOString()},{merge:true}),'Saved ✅');}
+function fSaveCombo(mid,k,v){const m=S.fm.find(x=>x.id===mid);if(!m)return;const uid=fTarget();if(fStarted(m)){toast('This match has kicked off — picks are locked.');return;}
+  const key=uid+'_'+mid;const cur=Object.assign({},comboOf(uid,mid));
+  if(k===null)Object.keys(cur).forEach(x=>delete cur[x]);else if(cur[k]===v)delete cur[k];else cur[k]=v;
+  const d=S.fp[key]||{};S.fp[key]=Object.assign({},d,{combo:cur});render();
+  write(()=>setDoc(doc(db,'fpicks',key),{uid,match:mid,pick:d.pick||'',combo:cur,updatedAt:new Date().toISOString()},{merge:true}),comboLegs(cur).length?'Combo saved ✅':'Combo cleared');}
 function fAdd(){const list=parseFixtures(fv('fx.txt',''));if(!list.length){toast('No matches found — check the format.');return;}
   delete S.form['fx.txt'];
   write(async()=>{for(const m of list){const ref=doc(collection(db,'fmatches'));await setDoc(ref,Object.assign(m,{kickoffTs:Timestamp.fromDate(new Date(m.kickoff)),result:null,score:''}));}},list.length+' matches added ⚽');}
@@ -650,9 +718,12 @@ document.addEventListener('click',ev=>{
   if(t.dataset.tab){S.tab=t.dataset.tab;S.imgUrl=null;try{history.replaceState(null,'','#'+S.tab);}catch(e){}render();window.scrollTo(0,0);return;}
   if(t.dataset.mode){S.mode=t.dataset.mode;try{localStorage.setItem('mode',S.mode);}catch(e){}S.tab=S.mode==='foot'?'fm':'picks';S.imgUrl=null;render();window.scrollTo(0,0);return;}
   if(t.dataset.fpick){fSavePick(t.dataset.m,t.dataset.fpick);return;}
+  if(t.dataset.cmk){fSaveCombo(t.dataset.m,t.dataset.cmk,t.dataset.v);return;}
   if(t.dataset.fres&&S.admin){fRes(t.dataset.m,t.dataset.fres);return;}
   const a=t.dataset.act;if(!a)return;
   if(a==='fold'){S.showOld=!S.showOld;render();return;}
+  if(a==='ctog'){S.cOpen=S.cOpen===t.dataset.m?null:t.dataset.m;render();return;}
+  if(a==='cclr'){fSaveCombo(t.dataset.m,null,null);return;}
   if(a==='toggleLogin'){S.loginMode=S.loginMode==='up'?'in':'up';S.err=null;render();return;}
   if(a==='logout'){signOut(auth);return;}
   if(a==='save'){savePicks();return;}
