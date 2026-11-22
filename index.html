@@ -81,6 +81,8 @@ td.n{font-weight:700}
 .mko{display:flex;flex-wrap:wrap;gap:5px}
 .mko button{padding:7px 10px;border:1px solid #cfc9bc;border-radius:18px;background:#fff;font:600 12.5px system-ui,sans-serif;color:var(--ink);cursor:pointer}
 .mko button.on{background:var(--green);border-color:var(--green);color:#fff}
+.win1{font-size:14.5px;margin-bottom:3px}
+.mko button:disabled{opacity:.45}
 .calc{margin-top:8px;padding-top:8px;border-top:1px solid var(--line);font-size:13px}
 .calcbar{position:sticky;bottom:8px;z-index:5;display:flex;justify-content:space-between;align-items:center;gap:10px;background:#1f5a32;color:#fff;border-radius:14px;padding:10px 14px;margin:0 0 12px;box-shadow:0 4px 14px rgba(0,0,0,.18)}
 .calcbar .small{color:#cfe3d5}.cb2{font-size:13.5px}.cbt{font:800 26px system-ui,sans-serif}.cbt span{font-size:13px;font-weight:600}
@@ -518,16 +520,23 @@ function mkOutcome(goals){const n=goals.length,hc=goals.filter(g=>g.t==='H').len
 const MK_ALL=(()=>{const out=new Map();const g=[];const rec=d=>{const o=mkOutcome(g);out.set(JSON.stringify(o),o);if(d===6)return;for(const t of['H','A'])for(const h of[1,2]){g.push({t,h});rec(d+1);g.pop();}};rec(0);return [...out.values()];})();
 function comboOf(uid,mid){const d=S.fp[uid+'_'+mid];return (d&&d.combo)||{};}
 function comboLegs(c){return MK.filter(x=>c[x.k]!=null&&c[x.k]!=='');}
-function comboMax(c){return comboLegs(c).reduce((a,x)=>a+x.p,0);}
+const COMBO_LIMIT=5,MULT_LEGS=4,MULT=1.5;
+function comboBase(c){return comboLegs(c).reduce((a,x)=>a+x.p,0);}
+// what the combo pays if every pick comes true (x1.5 for 4+ picks, rounded up)
+function comboMax(c){const b=comboBase(c);return comboLegs(c).length>=MULT_LEGS?Math.ceil(b*MULT):b;}
+function comboTxt(c){const b=comboBase(c),m=comboMax(c);return comboLegs(c).length>=MULT_LEGS?b+' × 1.5 = <b>'+m+' pts</b>':'<b>'+m+' pts</b>';}
+// matches in the same gameweek where this player already has a combo
+function combosUsed(uid,gw,exceptId){return S.fm.filter(m=>m.id!==exceptId&&(m.gw||0)===(gw||0)&&comboLegs(comboOf(uid,m.id)).length).length;}
 function comboPossible(c){const L=comboLegs(c);return MK_ALL.some(o=>L.every(x=>o[x.k]===c[x.k]));}
 // goals data is trustworthy only if it adds up to the final score
 function goalsOk(m){if(!m.goals||!m.score)return false;const s=String(m.score).match(/(\d+)\s*-\s*(\d+)/);if(!s)return false;const hc=m.goals.filter(g=>g.t==='H').length;return hc===+s[1]&&m.goals.length-hc===+s[2];}
 // returns {pts, legs:[{k,v,ok}]} or null if nothing to settle / not settled yet
-function comboRes(uid,m){const d=S.fp[uid+'_'+m.id];if(!d||!d.combo)return null;const L=comboLegs(d.combo);if(!L.length)return null;
+function comboRes(uid,m){const d=S.fp[uid+'_'+m.id];if(!d||!d.combo)return null;const L=comboLegs(d.combo);if(!L.length)return null;if(!comboAllowed(uid,m))return {late:true,over:true,legs:L.map(x=>({k:x.k,v:d.combo[x.k],ok:null})),pts:0,max:comboMax(d.combo)};
   if(d.updatedAt&&Date.parse(d.updatedAt)>=fKick(m))return {late:true,legs:L.map(x=>({k:x.k,v:d.combo[x.k],ok:null})),pts:0,max:comboMax(d.combo)};
   if(!m.result||!goalsOk(m))return {pending:true,legs:L.map(x=>({k:x.k,v:d.combo[x.k],ok:null})),pts:null,max:comboMax(d.combo)};
   const o=mkOutcome(m.goals);const legs=L.map(x=>({k:x.k,v:d.combo[x.k],ok:o[x.k]===d.combo[x.k]}));const all=legs.every(l=>l.ok);
   return {legs,pts:all?comboMax(d.combo):0,max:comboMax(d.combo),won:all};}
+function comboAllowed(uid,m){const same=S.fm.filter(x=>(x.gw||0)===(m.gw||0)&&comboLegs(comboOf(uid,x.id)).length).sort((a,b)=>fKick(a)-fKick(b)||String(a.id).localeCompare(String(b.id)));return same.slice(0,COMBO_LIMIT).some(x=>x.id===m.id);}
 function cPts(uid,m){const r=comboRes(uid,m);return r&&!r.pending&&!r.late?r.pts:0;}
 function legLabel(m,k,v){const mk=MK.find(x=>x.k===k);const o=mk.o(m).find(x=>x[0]===v);return (MKS[k]?MKS[k]+' ':'')+(o?o[1]:v);}
 // a pick only counts if it was saved before kick-off
@@ -554,18 +563,18 @@ function vFMatches(){
     h+='<div class="card"><p class="hint" style="margin:0">Tap <b>1</b> home win, <b>X</b> draw, <b>2</b> away win — correct = <b>3 pts</b>. Open <b>🎯 Combo</b> under a match for bonus picks: all must come true to score. Everything locks at kick-off.</p></div>';
     const me=fTarget();
     const card=m=>{const p=fPick(me,m.id);const btn=(v,l)=>'<button class="'+(p===v?'on':'')+'" data-fpick="'+v+'" data-m="'+m.id+'">'+l+'</button>';
-      const c=comboOf(me,m.id),L=comboLegs(c),mx=comboMax(c),okc=comboPossible(c),openP=S.cOpen===m.id;
-      let cb='<button class="cbar'+(L.length?' has':'')+'" data-act="ctog" data-m="'+m.id+'"><span>🎯 Combo'+(L.length?' · '+L.length+' pick'+(L.length>1?'s':''):'')+'</span><span>'+(L.length?(okc?'<b>'+mx+' pts</b> if all correct':'<b class="lose">⚠ impossible</b>'):'Add combo')+' '+(openP?'▲':'▼')+'</span></button>';
-      if(openP){cb+='<div class="cpanel"><p class="hint" style="margin:0 0 6px">Pick as many as you like. <b>All must come true</b> or the combo scores 0. Tap again to remove.</p>'+
-        MK.map(x=>'<div class="mk"><div class="mkh">'+esc(x.n)+' <span class="small">+'+x.p+'</span></div><div class="mko">'+x.o(m).map(([v,l])=>'<button class="'+(c[x.k]===v?'on':'')+'" data-cmk="'+x.k+'" data-v="'+v+'" data-m="'+m.id+'">'+esc(l)+'</button>').join('')+'</div></div>').join('')+
-        '<div class="calc">'+(L.length?(okc?L.length+' pick'+(L.length>1?'s':'')+' · <b>'+mx+' pts</b> if all correct · 0 if any is wrong':'⚠ These picks can\'t all happen in the same match — change one.'):'No combo picks yet.')+(L.length?' <button class="link" data-act="cclr" data-m="'+m.id+'">Clear</button>':'')+'</div></div>';}
+      const c=comboOf(me,m.id),L=comboLegs(c),mx=comboMax(c),okc=comboPossible(c),openP=S.cOpen===m.id,used=combosUsed(me,m.gw,m.id),full=!L.length&&used>=COMBO_LIMIT;
+      let cb='<button class="cbar'+(L.length?' has':'')+'" data-act="ctog" data-m="'+m.id+'"><span>🎯 Combo'+(L.length?' · '+L.length+' pick'+(L.length>1?'s':''):'')+'</span><span>'+(L.length?(okc?'Win <b>'+mx+' pts</b>':'<b class="lose">⚠ impossible</b>'):(full?'<span class="small">limit reached</span>':'Add combo'))+' '+(openP?'▲':'▼')+'</span></button>';
+      if(openP){cb+='<div class="cpanel"><p class="hint" style="margin:0 0 6px">Pick as many as you like. <b>All must come true</b> or the combo scores 0. <b>4+ picks = points × 1.5</b>. Max '+COMBO_LIMIT+' combos per gameweek ('+(used+(L.length?1:0))+'/'+COMBO_LIMIT+' used).</p>'+(full?'<p class="hint" style="color:var(--red);margin:0 0 6px">You already have '+COMBO_LIMIT+' combos this gameweek — clear one to use it here.</p>':'')+
+        MK.map(x=>'<div class="mk"><div class="mkh">'+esc(x.n)+' <span class="small">+'+x.p+'</span></div><div class="mko">'+x.o(m).map(([v,l])=>'<button class="'+(c[x.k]===v?'on':'')+'" data-cmk="'+x.k+'" data-v="'+v+'" data-m="'+m.id+'"'+(full?' disabled':'')+'>'+esc(l)+'</button>').join('')+'</div></div>').join('')+
+        '<div class="calc">'+(L.length?(okc?'<div class="win1">🎯 If all '+L.length+' come true you win '+comboTxt(c)+'</div><div class="small">'+L.map(x=>esc(legLabel(m,x.k,c[x.k]))+' +'+x.p).join(' · ')+(L.length<MULT_LEGS?' · add '+(MULT_LEGS-L.length)+' more for ×1.5':'')+' · 0 if any is wrong</div>':'⚠ These picks can\'t all happen in the same match — change one.'):'No combo picks yet.')+(L.length?' <button class="link" data-act="cclr" data-m="'+m.id+'">Clear</button>':'')+'</div></div>';}
       return '<div class="fx"><div class="tm">'+crest(m.home,m.hLogo)+esc(m.home)+'</div><div><div class="hda">'+btn('H','1')+btn('D','X')+btn('A','2')+'</div><div class="ko">'+esc(fmtKO(m.kickoff).split(', ').pop())+'</div></div><div class="tm">'+crest(m.away,m.aLogo)+esc(m.away)+'</div></div>'+cb;};
     let lastDay='',body='';
     open.forEach(m=>{const d=dayKey(m.kickoff);if(d!==lastDay){if(body)h+='<div class="card"><h2>'+esc(lastDay)+'</h2>'+body+'</div>';body='';lastDay=d;}body+=card(m);});
     if(body)h+='<div class="card"><h2>'+esc(lastDay)+'</h2>'+body+'</div>';
     // running calculator for this gameweek's open matches
     const p1=open.filter(m=>fPick(me,m.id)).length*3,pc=open.reduce((a,m)=>{const c=comboOf(me,m.id);return a+(comboLegs(c).length&&comboPossible(c)?comboMax(c):0);},0),nc=open.filter(m=>comboLegs(comboOf(me,m.id)).length).length;
-    h+='<div class="calcbar"><div><div class="small">'+(me!==S.uid?esc(pname(me))+' · ':'')+'Max you can still score</div><div class="cb2">1X2 <b>'+p1+'</b> + Combos <b>'+pc+'</b>'+(nc?' <span class="small">('+nc+')</span>':'')+'</div></div><div class="cbt">'+(p1+pc)+'<span> pts</span></div></div>';
+    h+='<div class="calcbar"><div><div class="small">'+(me!==S.uid?esc(pname(me))+' · ':'')+'Max you can still score</div><div class="cb2">1X2 <b>'+p1+'</b> + Combos <b>'+pc+'</b> <span class="small">('+combosUsed(me,gw,null)+'/'+COMBO_LIMIT+' combos)</span></div></div><div class="cbt">'+(p1+pc)+'<span> pts</span></div></div>';
   }
   if(live.length)h+='<div class="card"><h2>🔴 Playing now / awaiting result</h2>'+live.map(m=>resRow(m,true)).join('')+'</div>';
   // results grouped by gameweek, newest first
@@ -587,7 +596,7 @@ function resRow(m,live){
   const mid=m.result?'<div class="sc">'+esc(m.score||L[m.result])+'</div><div class="ko" style="white-space:nowrap">FT · '+esc(fmtKO(m.kickoff).split(', ')[0])+'</div>':'<div class="sc">vs</div><div class="ko">'+(live?'Started':'')+'</div>';
   const combos=playerIds().map(id=>{const r=comboRes(id,m);if(!r)return '';
     const legs=r.legs.map(l=>'<span class="lg'+(l.ok===true?' good':l.ok===false?' wrong':'')+'">'+esc(legLabel(m,l.k,l.v))+(l.ok===true?' ✓':l.ok===false?' ✗':'')+'</span>').join('');
-    const res=r.late?'<b class="small">late — no pts</b>':r.pending?'<span class="small">'+r.max+' pts if all correct'+(m.result?' · awaiting goal data':'')+'</span>':(r.won?'<b class="win">+'+r.pts+'</b>':'<b class="lose">0</b>');
+    const res=r.over?'<b class="small">over 5-combo limit — no pts</b>':r.late?'<b class="small">late — no pts</b>':r.pending?'<span class="small">'+r.max+' pts if all correct'+(m.result?' · awaiting goal data':'')+'</span>':(r.won?'<b class="win">+'+r.pts+(r.legs.length>=MULT_LEGS?' (×1.5)':'')+'</b>':'<b class="lose">0</b>');
     return '<div class="cmb"><span class="cmn">🎯 '+esc(pname(id))+'</span>'+legs+res+'</div>';}).join('');
   return '<div class="rrow"><div class="rteams"><div class="rt">'+crest(m.home,m.hLogo)+'<span>'+esc(m.home)+'</span></div><div class="rmid">'+mid+'</div><div class="rt r"><span>'+esc(m.away)+'</span>'+crest(m.away,m.aLogo)+'</div></div><div class="pks">'+picks+'</div>'+combos+'</div>';
 }
@@ -616,6 +625,7 @@ function fSavePick(mid,v){const m=S.fm.find(x=>x.id===mid);if(!m)return;const ui
   write(()=>setDoc(doc(db,'fpicks',uid+'_'+mid),{uid,match:mid,pick:v,updatedAt:new Date().toISOString()},{merge:true}),'Saved ✅');}
 function fSaveCombo(mid,k,v){const m=S.fm.find(x=>x.id===mid);if(!m)return;const uid=fTarget();if(fStarted(m)){toast('This match has kicked off — picks are locked.');return;}
   const key=uid+'_'+mid;const cur=Object.assign({},comboOf(uid,mid));
+  if(k!==null&&!comboLegs(cur).length&&combosUsed(uid,m.gw,mid)>=COMBO_LIMIT){toast('Max '+COMBO_LIMIT+' combos per gameweek — clear one first.');return;}
   if(k===null)Object.keys(cur).forEach(x=>delete cur[x]);else if(cur[k]===v)delete cur[k];else cur[k]=v;
   const d=S.fp[key]||{};S.fp[key]=Object.assign({},d,{combo:cur});render();
   write(()=>setDoc(doc(db,'fpicks',key),{uid,match:mid,pick:d.pick||'',combo:cur,updatedAt:new Date().toISOString()},{merge:true}),comboLegs(cur).length?'Combo saved ✅':'Combo cleared');}
